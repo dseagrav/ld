@@ -44,7 +44,7 @@
 #endif
 
 // bpf ethernet interface
-#ifdef HAVE_NET_BPF_H
+#if !defined (HAVE_LINUX_IF_H) && defined (HAVE_NET_BPF_H)
 #include <net/if.h>
 #include <net/bpf.h>
 #endif
