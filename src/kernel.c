@@ -1981,6 +1981,12 @@ void sdu_cons_init(){
   }
 
   int flags;
+  // Become reusable
+  flags = 1;
+  if(setsockopt(sdu_fd,SOL_SOCKET,SO_REUSEADDR,&flags,sizeof(flags)) < 0){
+    perror("sdu_fd:setsockopt()");
+  }
+
   // Become nonblocking
   flags = fcntl(sdu_fd,F_GETFL,0);
   if(flags < 0){ flags = 0; }
