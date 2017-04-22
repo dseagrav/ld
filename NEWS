@@ -1,0 +1,9 @@
+VERSION 0.98 - Initial release.
+  This version is sufficient to run a single Lambda at reduced speed.
+
+  KNOWN ISSUES:
+  * The need-fetch bit is inoperative. Every macroinstruction causes a fetch.
+    This incurs a heavy speed penalty.
+  * SM clock stepping is incomplete, meaning many debugging and diagnostic
+    functions will fail.
+  * Cache is not implemented. This also incurs a speed penalty.

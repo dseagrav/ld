@@ -1,0 +1,19 @@
+This file purports to list those whose code wound up here.
+
+THE RINGLEADERS: ("The Usual Suspects")
+
+   Daniel Seagraves <dseagrav@lunar-tokyo.net>   Chief Instigator
+   Barry Silverman <barry@disus.com>		 That Other Guy
+
+OUR VICTIMS: (We borrowed code from...)
+
+   Brad Parker <brad@heeltoe.com>		 lpart tool
+   Greg Gilley					 Symbol handling code   
+   Mike Chambers				 Fake86 CPU core   
+
+SPECIAL THANKS TO:
+
+   Richard Greenblatt
+   The LMI employees who gave us a machine to emulate
+   The MIT students and faculty who contributed to the LispM
+

@@ -1,0 +1,49 @@
+# Things for git to ignore
+# Object files
+*.o
+ld
+lam
+lpart
+# Emacs backup files
+*~
+# Trace logs
+foo*
+*.LOG
+# Dump files
+*.DUMP
+*SCREENSHOT*.BMP
+# Partition images
+ULM*
+LOD*
+*sym
+bootstrap*
+# The disk image file
+disk.img
+# The tape image file
+lam.tap
+# CMOS image file
+CMOS.RAM
+# ROM image files
+roms
+roms/*
+# The configuration file
+ld.conf
+# Autoconf stuff
+aclocal.m4
+autom4te.cache/
+compile
+config.status
+install-sh
+missing
+INSTALL
+depcomp
+Makefile.in
+src/Makefile.in
+configure
+Makefile
+config.log
+src/.deps/
+src/Makefile
+src/config.h.in
+src/config.h
+src/stamp*
