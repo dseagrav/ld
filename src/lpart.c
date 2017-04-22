@@ -1,6 +1,7 @@
 /* Copyright 2016-2017 
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
+   Robert Swindells <rjs@fdy2.co.uk>
    Brad Parker <brad@heeltoe.com>
 
    This file is part of LambdaDelta.
