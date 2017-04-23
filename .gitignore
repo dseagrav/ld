@@ -19,12 +19,11 @@ LOD*
 bootstrap*
 # The disk image file
 disk.img
-# The tape image file
-lam.tap
 # CMOS image file
 CMOS.RAM
+# RTC RAM image file
+RTC.RAM
 # ROM image files
-roms
 roms/*
 # The configuration file
 ld.conf

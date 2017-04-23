@@ -436,6 +436,7 @@ void init_sdl_to_scancode_map(void){
 // Utility functions
 void FB_dump(int vn);
 void write_nvram();
+void write_rtc_nvram();
 
 // SDL items
 // Keyboard buffer
@@ -774,6 +775,7 @@ void sdl_cleanup(void){
     close(sdu_fd);
   }
   write_nvram();
+  write_rtc_nvram();
   SDL_Quit();
 }
 
@@ -1292,6 +1294,7 @@ static void sdl_cleanup(void){
     close(sdu_fd);
   }
   write_nvram();
+  write_rtc_nvram();
   SDL_Quit();
 }
 
@@ -1617,6 +1620,51 @@ void write_nvram(){
       perror("CMOS:write");
     }
     close(cmos_fd);
+  }
+}
+
+void read_rtc_nvram(){
+  extern uint8_t RTC_RAM[];
+  int rtc_fd = open("RTC.RAM",O_RDONLY);
+  if(rtc_fd < 0){
+    perror("RTC:open");
+    // Initialize contents
+    RTC_RAM[0] = 0x2C; // EST TZ Low
+    RTC_RAM[1] = 0x01; // EST TZ Hi
+    RTC_RAM[2] = 'C'; // Cookie
+    RTC_RAM[3] = '\'';
+    RTC_RAM[4] = 'e';
+    RTC_RAM[5] = 's';
+    RTC_RAM[6] = 't';
+    RTC_RAM[7] = ' ';
+    RTC_RAM[8] = 'v';
+    RTC_RAM[9] = 'r';
+    RTC_RAM[10] = 'a';
+    RTC_RAM[11] = 'i';
+    RTC_RAM[12] = '.';
+    RTC_RAM[13] = 0;
+  }else{
+    ssize_t rv=0;
+    rv = read(rtc_fd,RTC_RAM,50);
+    if(rv != 50){
+      perror("RTC:read");
+    }
+    close(rtc_fd);
+  }
+}
+
+void write_rtc_nvram(){
+  extern uint8_t RTC_RAM[];
+  int rtc_fd = open("RTC.RAM",O_RDWR|O_CREAT,0660);
+  if(rtc_fd < 0){
+    perror("RTC:open");
+  }else{
+    ssize_t rv=0;
+    rv = write(rtc_fd,RTC_RAM,50);
+    if(rv != 50){
+      perror("RTC:write");
+    }
+    close(rtc_fd);
   }
 }
 
@@ -2721,6 +2769,8 @@ int main(int argc, char *argv[]){
 
   // Read in NVRAM
   read_nvram();
+  // And RTC NVRAM
+  read_rtc_nvram();
 
   // Read in ROMs
   read_sdu_rom();

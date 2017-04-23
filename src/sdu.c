@@ -332,6 +332,7 @@ void sdu_init(){
   RTC_Counter[RTC_YEAR] = rtc_year;
   RTC_REGD.Valid_RAM = 1;
   // This stuff is what Lisp puts there
+  /*
   RTC_RAM[0] = 0x2C; // TZ Low
   RTC_RAM[1] = 0x01; // TZ Hi
   RTC_RAM[2] = 'C'; // Cookie
@@ -346,6 +347,7 @@ void sdu_init(){
   RTC_RAM[11] = 'i';
   RTC_RAM[12] = '.';
   RTC_RAM[13] = 0;
+  */
   // Clobber state
   SDU_state=0;
   // Initialize CPU state. The SDU would have done this at startup?
