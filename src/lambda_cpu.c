@@ -3308,7 +3308,7 @@ void lambda_clockpulse(int I){
     }else{
       // This MSA will not cause a fetch. Is it acceptable to clobber VMA and read anyway?
       // We should check.
-      printf("MACRO-STREAM-ADVANCE: NO READ WILL BE NECESSARY - INVESTIGATE IMPLICATIONS OF DOING IT ANYWAY / NOT DOING IT\n");
+      // printf("MACRO-STREAM-ADVANCE: NO READ WILL BE NECESSARY - INVESTIGATE IMPLICATIONS OF DOING IT ANYWAY / NOT DOING IT\n");
       // pS[I].cpu_die_rq = 1;
     }
 
