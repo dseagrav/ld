@@ -3304,7 +3304,7 @@ void lambda_clockpulse(int I){
       // pS[I].cpu_die_rq = 1;
     }
 
-    if(((pS[I].LCregister.raw>>1)&0x01) != 0x0){
+    if(((pS[I].LCregister.raw>>1)&0x01) == 0x0){
 #endif
       if(pS[I].microtrace){
 	printf("MACRO-STREAM-ADVANCE: INITIATING MEMORY READ...\n");
