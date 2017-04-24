@@ -25,6 +25,9 @@ PREREQUISITES
   and source tapes. At the time of release, these items are available from
   Bitsavers. See http://www.bitsavers.org/ for more information.
 
+  A prototype Release 5.0 system software distribution is available at 
+  https://s3.us-east-2.amazonaws.com/ds.storage.0000/Lambda-Release5.tar.gz
+
 CONTACT
 
   Questions, ideas, problems, solutions, praise, complaints, or baseless
