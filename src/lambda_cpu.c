@@ -31,6 +31,9 @@
 #include "sdu.h"
 #include "syms.h"
 
+// FIXME: Remove the #define and the conditionals later
+#define ISTREAM
+
 // Configuration PROM message
 static uint8_t prom_string[0x12] = "LMI LAMBDA V5.0";
 static uint8_t prom_modelno_string[0x12] = "LAM001 V5.0";
