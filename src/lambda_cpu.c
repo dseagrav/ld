@@ -3213,6 +3213,11 @@ void lambda_clockpulse(int I){
       if(pS[I].microtrace != 0){
 	printf("ODD PHASE LIGHTS NEEDS FETCH\n");
       }
+    }else{
+      // Clobber pagefault anyway?
+      if(pS[I].Page_Fault != 0){
+	pS[I].Page_Fault = 0; 
+      }
     }
 
     // If needfetch is set, do it
