@@ -27,6 +27,8 @@ PREREQUISITES
 
   A prototype Release 5.0 system software distribution is available at 
   https://s3.us-east-2.amazonaws.com/ds.storage.0000/Lambda-Release5.tar.gz
+  A Github repository has been set up to track issues and changes for this
+  release, see https://github.com/dseagrav/Lambda-system-software
 
 CONTACT
 
@@ -248,6 +250,8 @@ PREPARING ROM IMAGES
   VCMEM.ROM - The VCMEM's nubus-space configuration ROM. 2K. This contains 8088
   	  program code that will be run by the SDU. The one on Bitsavers has
 	  a MD5 checksum of 0e53416a49294f02c7fd925c9de47f5a.
+
+  These can be found in zip files on the PDFs side of Bitsavers.
 
 MICROCODE SYMBOL FILES
 
