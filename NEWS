@@ -1,4 +1,4 @@
-VERSION 0.98 - Initial release.
+VERSION 0.98.1 - Initial release.
   This version is sufficient to run a single Lambda at reduced speed.
 
   KNOWN ISSUES:
@@ -7,3 +7,20 @@ VERSION 0.98 - Initial release.
   * SM clock stepping is incomplete, meaning many debugging and diagnostic
     functions will fail.
   * Cache is not implemented. This also incurs a speed penalty.
+
+VERSION 0.98.2
+  This version is sufficient to run a single Lambda at reduced speed.
+
+  IMPROVEMENTS:
+  * The need-fetch mechanism is now working properly, as far as we can tell.
+  * The RTC's RAM is now saved between runs, making it possible to change
+    the site timezone without Lisp complaining
+  * In situations where both Linux tuntap and BPF are available,
+    tuntap is used. This prevents a conflict.
+  * The telnet socket used for the SDU serial port has SO_REUSEADDR set.
+
+  KNOWN ISSUES:
+  * SM clock stepping is incomplete, meaning many debugging and diagnostic
+    functions will fail.
+  * Cache is not implemented. This incurs a speed penalty.
+

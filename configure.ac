@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.69])
-AC_INIT([ld], [0.98.1], [dseagrav@lunar-tokyo.net])
+AC_INIT([ld], [0.98.2], [dseagrav@lunar-tokyo.net])
 AC_CONFIG_SRCDIR([src/kernel.c])
 AM_INIT_AUTOMAKE
 AC_CONFIG_SRCDIR([src/syms.h])
