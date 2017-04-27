@@ -1169,7 +1169,6 @@ void op_grp5() {
 }
 
 uint8_t dolog = 0, didintr = 0;
-FILE    *logout;
 uint8_t printops = 0;
 
 void intcall86 (uint8_t intnum) {
