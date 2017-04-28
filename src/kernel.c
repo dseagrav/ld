@@ -121,6 +121,8 @@ uint32_t FB_Image[2][VIDEO_WIDTH*VIDEO_HEIGHT];
 int u_minh = 0x7fffffff, u_maxh = 0, u_minv = 0x7fffffff, u_maxv = 0;
 // Console switching
 int active_console = 0;
+// Reverse video mode (think <Terminal> C)
+int black_on_white[2] = { 1,1 };               // 1 => white-on-black, 0 => black-on-white
 
 #ifdef SDL1
 // SDL1 state
@@ -704,6 +706,38 @@ void warp_mouse_callback(int cp){
   SDL_WarpMouse((pS[cp].Amemory[mouse_x_loc[cp]]&0xFFFF),(pS[cp].Amemory[mouse_y_loc[cp]]&0xFFFF));
 }
 
+void set_bow_mode(int vn,int mode){
+  int i,j;
+
+  if(black_on_white[vn] == mode){
+    // printf("BLACK-ON-WHITE MODE unchanged\n");
+    return;                   /* noop */
+  }
+  printf("VC %d BLACK-ON-WHITE MODE now %d\n",vn,mode);
+  black_on_white[vn] = mode;  /* update */
+
+  // invert pixels
+  uint32_t *p = FB_Image[vn];
+  if(vn == active_console){
+    uint32_t *b = screen->pixels;
+    for (i = 0; i < video_width; i++) {
+      for (j = 0; j < video_height; j++) {
+	*b = *p = ~*p;          /* flip bit */
+	p++; b++;
+      }
+    }
+    // Refresh display
+    SDL_UpdateRect(screen, 0, 0, video_width, video_height);
+  }else{
+    for (i = 0; i < video_width; i++) {
+      for (j = 0; j < video_height; j++) {
+	*p = ~*p;          /* flip bit */
+	p++;
+      }
+    }
+  }
+}
+
 void accumulate_update(int h, int v, int hs, int vs){
   if (h < u_minh) u_minh = h;
   if (h+hs > u_maxh) u_maxh = h+hs;
@@ -890,7 +924,7 @@ void framebuffer_update_word(int vn,uint32_t addr,uint32_t data){
 
   if(active_console == vn){
     while(mask < 0x100000000LL){
-      if((data&mask) == mask){
+      if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = PIXEL_ON;
       }else{
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = PIXEL_OFF;
@@ -901,7 +935,7 @@ void framebuffer_update_word(int vn,uint32_t addr,uint32_t data){
     accumulate_update(col, row, 32, 1);
   }else{
     while(mask < 0x100000000LL){
-      if((data&mask) == mask){
+      if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
 	FB_Image[vn][outpos] = PIXEL_ON;
       }else{
 	FB_Image[vn][outpos] = PIXEL_OFF;
@@ -931,7 +965,7 @@ void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data){
 
   if(active_console == vn){
     while(mask < 0x10000LL){
-      if((data&mask) == mask){
+      if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = PIXEL_ON;
       }else{
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = PIXEL_OFF;
@@ -942,7 +976,7 @@ void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data){
     accumulate_update(col, row, 16, 1);
   }else{
     while(mask < 0x10000LL){
-      if((data&mask) == mask){
+      if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
 	FB_Image[vn][outpos] = PIXEL_ON;
       }else{
 	FB_Image[vn][outpos] = PIXEL_OFF;
@@ -973,7 +1007,7 @@ void framebuffer_update_byte(int vn,uint32_t addr,uint8_t data){
 
   if(active_console == vn){
     while(mask < 0x100){
-      if((data&mask) == mask){
+      if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = PIXEL_ON;
       }else{
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = PIXEL_OFF;
@@ -984,7 +1018,7 @@ void framebuffer_update_byte(int vn,uint32_t addr,uint8_t data){
     accumulate_update(col, row, 8, 1);
   }else{
     while(mask < 0x100){
-      if((data&mask) == mask){
+      if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
         FB_Image[vn][outpos] = PIXEL_ON;
       }else{
         FB_Image[vn][outpos] = PIXEL_OFF;
@@ -1232,6 +1266,41 @@ void warp_mouse_callback(int cp){
   SDL_WarpMouseInWindow(SDLWindow,(pS[cp].Amemory[mouse_x_loc[cp]]&0xFFFF),(pS[cp].Amemory[mouse_y_loc[cp]]&0xFFFF));
 }
 
+void set_bow_mode(int vn,int mode){
+  int i,j;
+
+  if (black_on_white[vn] == mode) {
+    // printf("BLACK-ON-WHITE MODE unchanged\n");
+    return;                   /* noop */
+  }
+  printf("VC %d BLACK-ON-WHITE MODE now %d\n",vn,mode);
+  black_on_white[vn] = mode;  /* update */
+  
+  // invert pixels
+  uint32_t *p = FB_Image[active_console];
+  if(vn == active_console){
+    uint32_t *b = FrameBuffer;
+    for (i = 0; i < VIDEO_WIDTH; i++) {
+      for (j = 0; j < VIDEO_HEIGHT; j++) {
+	*b = *p = ~*p;          /* flip bit */
+	p++; b++;
+      }
+    }
+    // Refresh display
+    SDL_UpdateTexture(SDLTexture, NULL, FrameBuffer, (VIDEO_WIDTH*4));
+    SDL_RenderClear(SDLRenderer);
+    SDL_RenderCopy(SDLRenderer, SDLTexture, NULL, NULL);
+    SDL_RenderPresent(SDLRenderer);
+  }else{
+    for (i = 0; i < VIDEO_WIDTH; i++) {
+      for (j = 0; j < VIDEO_HEIGHT; j++) {
+	*p = ~*p;          /* flip bit */
+	p++;
+      }
+    }
+  }  
+}
+
 void accumulate_update(int h, int v, int hs, int vs){
   if (h < u_minh) u_minh = h;
   if (h+hs > u_maxh) u_maxh = h+hs;
@@ -1439,7 +1508,7 @@ void framebuffer_update_word(int vn,uint32_t addr,uint32_t data){
 
   if(active_console == vn){
     while(mask < 0x100000000LL){
-      if((data&mask) == mask){
+      if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = PIXEL_ON;
       }else{
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = PIXEL_OFF;
@@ -1450,7 +1519,7 @@ void framebuffer_update_word(int vn,uint32_t addr,uint32_t data){
     accumulate_update(col, row, 32, 1);
   }else{
     while(mask < 0x100000000LL){
-      if((data&mask) == mask){
+      if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
         FB_Image[vn][outpos] = PIXEL_ON;
       }else{
         FB_Image[vn][outpos] = PIXEL_OFF;
@@ -1478,7 +1547,7 @@ void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data){
 
   if(active_console == vn){
     while(mask < 0x10000){
-      if((data&mask) == mask){
+      if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = PIXEL_ON;
       }else{
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = PIXEL_OFF;
@@ -1489,7 +1558,7 @@ void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data){
     accumulate_update(col, row, 16, 1);
   }else{
     while(mask < 0x10000){
-      if((data&mask) == mask){
+      if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
 	FB_Image[vn][outpos] = PIXEL_ON;
       }else{
 	FB_Image[vn][outpos] = PIXEL_OFF;
@@ -1518,7 +1587,7 @@ void framebuffer_update_byte(int vn,uint32_t addr,uint8_t data){
 
   if(active_console == vn){
     while(mask < 0x100){
-      if((data&mask) == mask){
+      if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = PIXEL_ON;
       }else{
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = PIXEL_OFF;
@@ -1529,7 +1598,7 @@ void framebuffer_update_byte(int vn,uint32_t addr,uint8_t data){
     accumulate_update(col, row, 8, 1);
   }else{
     while(mask < 0x100){
-      if((data&mask) == mask){
+      if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
         FB_Image[vn][outpos] = PIXEL_ON;
       }else{
         FB_Image[vn][outpos] = PIXEL_OFF;

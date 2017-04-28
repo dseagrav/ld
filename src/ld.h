@@ -34,6 +34,7 @@ void sducons_write(char data);
 void framebuffer_update_word(int vn,uint32_t addr,uint32_t data);
 void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data);
 void framebuffer_update_byte(int vn,uint32_t addr,uint8_t data);
+void set_bow_mode(int vn,int mode);
 
 // Host ethernet interface
 void ether_tx_pkt(uint8_t *data,uint32_t len);
