@@ -385,7 +385,6 @@ struct lambdaState {
   uint32_t Multiplier_Output;         // Multiplier output
   uint32_t Multiplier_FT;             // Multiplier flow-through
   uint16_t TRAM_PC;                   // Timing RAM "PC" register, 12 bits
-
   uint64_t Obus_Input;                // Obus Multiplexer Input
 
   bool NOP_Next;                    // Next microinstruction gets NOPed out
@@ -397,8 +396,11 @@ struct lambdaState {
   bool slow_dest;                   // Slow destination flag
   bool long_inst;                   // long instruction flag
   bool exec_hold;                   // Execution hold flag, waiting for bus to free
+  bool uI_Clock_Pulse;              // Microinstruction clock pulsed
+  bool wrote_uPC;                   // Did we write the uPC?
   bool microtrace;                  // Microcode tracing enable
   bool macrotrace;                  // Macrocode tracing enable
+  uint16_t Next_History_Pointer;    // Next HPTR, 12 bits
 
   // Performance monitoring
   volatile unsigned long cycle_count;
