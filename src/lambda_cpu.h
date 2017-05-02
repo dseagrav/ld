@@ -390,6 +390,8 @@ struct lambdaState {
   bool NOP_Next;                    // Next microinstruction gets NOPed out
   bool cram_write_cyc;              // CRAM write cycle (or map)
 
+  int SM_Clock;                     // State Machine Clock
+  
   // Software flags (Nonexistent on real hardware)
   uint8_t NUbus_ID;                 // Bus slot for this processor (RG board slot?)
   bool test_true;                   // Condition Test True
