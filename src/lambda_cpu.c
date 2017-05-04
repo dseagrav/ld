@@ -2745,19 +2745,6 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	pS[I].Next_History_Pointer = pS[I].History_Pointer+1;
 	if(pS[I].Next_History_Pointer > 0xFFF){ pS[I].Next_History_Pointer = 0; }
       }
-      // Light halt req bit
-      // FIXME: WRONG PLACE
-      if((pS[I].Iregister.Halt)){
-	if(pS[I].ConReg.halt_request != 1){	
-	  printf("TREG %d: HALT REQ SET\n",I);
-	  pS[I].ConReg.halt_request = 1;
-	}
-      }else{
-	if(pS[I].ConReg.halt_request != 0){
-	  printf("TREG %d: HALT REQ CLEARED\n",I);
-	  pS[I].ConReg.halt_request = 0;
-	}
-      }
       // If Force-Hold is on, make sure hold stays lit
       if(pS[I].PMR.Force_T_Hold != 0 && pS[I].ConReg.t_hold_l != 0){ pS[I].ConReg.t_hold_l = 0; }
       // Operate ALU and shifter, load O bus
@@ -3030,6 +3017,18 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
       if(pS[I].TREG.new_uinst != 0 && pS[I].PMR.Allow_UInst_Clocks != 0){
 	pS[I].ConReg.uinst_clock_l = 0;
 	printf("TREG %d: UI CLOCK RISING EDGE\n",I);
+	// Light halt req bit?
+	if((pS[I].Iregister.Halt)){
+	  if(pS[I].ConReg.halt_request != 1){	
+	    printf("TREG %d: HALT REQ SET\n",I);
+	    pS[I].ConReg.halt_request = 1;
+	  }
+	}else{
+	  if(pS[I].ConReg.halt_request != 0){
+	    printf("TREG %d: HALT REQ CLEARED\n",I);
+	    pS[I].ConReg.halt_request = 0;
+	  }
+	}	
 	// Save present uPC
 	pS[I].loc_ctr_cnt = pS[I].loc_ctr_reg.raw;
 	// TRIGGER DEST WRITES / JUMPS
