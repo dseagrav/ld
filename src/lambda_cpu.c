@@ -1998,8 +1998,6 @@ void lambda_nubus_slave(int I){
 	  disassemble_IR(I);
           NUbus_acknowledge = 1;
 	  pS[I].spy_wrote_ireg = true;
-	  // SOURCE CYCLE FETCH HAPPENS HERE!
-	  handle_source(I,1);
           return;
         }
         if(NUbus_Request == VM_BYTE_WRITE){
@@ -2010,8 +2008,6 @@ void lambda_nubus_slave(int I){
 	  if(NUbus_Address.Byte == 3){
 	    printf("DISASSEMBLY OF WRITTEN UI:\n");
 	    disassemble_IR(I);
-	    // SOURCE CYCLE FETCH HAPPENS HERE!
-	    handle_source(I,1);
 	  }
           return;
         }
@@ -2889,7 +2885,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	    pS[I].test_true ^= 1;
 	  }		    
 	  break;
-	case 3: // DISPATCH-OP
+	case 3: // DISP-OP
 	  printf("TREG: DISPATCH-OP\n");
 	  break;
 	}
@@ -2915,9 +2911,10 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	default:
 	  printf("TREG %d: UNKNOWN TRAM_PC 0%o\n",I,pS[I].TRAM_PC);
 	  // Fall into
-	case 0:     // SETZ
-	case 040:   // NOP'd SETZ
-	case 0400:  // JUMP		   
+	case 0:     // ALU
+	case 040:   // NOP'd ALU
+	case 0400:  // JUMP
+	case 0600:  // DISP
 	case 01000: // Used by lambda-diag
 	case 01004: // Used by lambda-diag
 	case 01005: // Used by lambda-diag for force-source codeword
@@ -3187,7 +3184,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	      }
 	    }
 	    break;
-	  case 3: // DISPATCH-OP
+	  case 3: // DISP-OP
 	    printf("TREG: DISPATCH-OP\n");
 	    break;
 	  }
