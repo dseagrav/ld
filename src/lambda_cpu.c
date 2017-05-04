@@ -2281,15 +2281,10 @@ void lambda_nubus_slave(int I){
 	    printf("Nxt");
 	    NUbus_Data.word = pS[I].loc_ctr_nxt;
 	  }else{
-	    if(pS[I].TRAM_PC == 01005 && 1 == 2){
-	      printf("Reg+1");
-	      NUbus_Data.word = (pS[I].loc_ctr_reg.raw+1);	      
-	    }else{
-	      printf("Reg");
-	      NUbus_Data.word = pS[I].loc_ctr_reg.raw;
-	    }
+	    printf("Reg");
+	    NUbus_Data.word = pS[I].loc_ctr_reg.raw;
 	  }
-	  printf(" = data 0x%X (0%o)\n",NUbus_Data.word,NUbus_Data.word);
+	  printf(" = 0x%X (0%o)\n",NUbus_Data.word,NUbus_Data.word);
           NUbus_acknowledge = 1;
           return;
         }
@@ -2300,13 +2295,8 @@ void lambda_nubus_slave(int I){
             printf("Nxt");
             Word = pS[I].loc_ctr_nxt;
           }else{
-            if(pS[I].TRAM_PC == 01005 && 1 == 2){
-              printf("Reg+1");
-              Word = (pS[I].loc_ctr_reg.raw+1);
-            }else{
-              printf("Reg");
-              Word = pS[I].loc_ctr_reg.raw;
-            }
+	    printf("Reg");
+	    Word = pS[I].loc_ctr_reg.raw;
           }
 	  printf(" = 0%o",Word);
 	  Word >>= (8*NUbus_Address.Byte);
@@ -2635,7 +2625,7 @@ void lambda_nubus_slave(int I){
 	printf("CONREG %d: DISABLE SM CLOCK\n",I);	
 	pS[I].cpu_die_rq = 1; // Ensure stopped
 	pS[I].ConReg.LED = 1; // Not inverted - Does this force LED?
-	pS[I].ConReg.uinst_clock_l = 1; // HACK HACK
+	// pS[I].ConReg.uinst_clock_l = 1; // HACK HACK
       }
       NUbus_acknowledge=1;
       return;
@@ -2754,6 +2744,19 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	pS[I].History_RAM[pS[I].History_Pointer&0xFFF] = pS[I].loc_ctr_cnt;
 	pS[I].Next_History_Pointer = pS[I].History_Pointer+1;
 	if(pS[I].Next_History_Pointer > 0xFFF){ pS[I].Next_History_Pointer = 0; }
+      }
+      // Light halt req bit
+      // FIXME: WRONG PLACE
+      if((pS[I].Iregister.Halt)){
+	if(pS[I].ConReg.halt_request != 1){	
+	  printf("TREG %d: HALT REQ SET\n",I);
+	  pS[I].ConReg.halt_request = 1;
+	}
+      }else{
+	if(pS[I].ConReg.halt_request != 0){
+	  printf("TREG %d: HALT REQ CLEARED\n",I);
+	  pS[I].ConReg.halt_request = 0;
+	}
       }
       // If Force-Hold is on, make sure hold stays lit
       if(pS[I].PMR.Force_T_Hold != 0 && pS[I].ConReg.t_hold_l != 0){ pS[I].ConReg.t_hold_l = 0; }
@@ -2926,6 +2929,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	  printf("TREG %d: UNKNOWN TRAM_PC 0%o\n",I,pS[I].TRAM_PC);
 	  // Fall into
 	case 0:     // SETZ
+	case 040:   // NOP'd SETZ
 	case 0400:  // JUMP		   
 	case 01000: // Used by lambda-diag
 	case 01004: // Used by lambda-diag
@@ -2962,6 +2966,56 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
       }
     }else{
       printf("RG %d: PMR: SM CLOCK LOW: TRAM_PC 0%o\n",I,pS[I].TRAM_PC);
+      // Do UI pulse stuff
+      if(pS[I].ConReg.uinst_clock_l == 1 && pS[I].uI_Clock_Pulse == true){
+	pS[I].uI_Clock_Pulse = false;
+	printf("TREG %d: Advance HPTR\n",I);
+	pS[I].History_Pointer = pS[I].Next_History_Pointer;
+	if(pS[I].wrote_uPC == false){
+	  printf("TREG %d: UI CLOCK: ADVANCE uPC\n",I);
+	  // ADVANCE LOCATION COUNTER
+	  if(pS[I].loc_ctr_nxt != -1){
+	    pS[I].loc_ctr_reg.raw = pS[I].loc_ctr_nxt; // Load next instruction
+	    pS[I].loc_ctr_nxt = -1;          // Disarm
+	  }else{
+	    pS[I].loc_ctr_reg.raw++; // Otherwise get next instruction
+	  }
+	  pS[I].last_loc_ctr = pS[I].loc_ctr_reg.raw;    // Save This
+	}else{
+	  pS[I].wrote_uPC = false;
+	}
+	// LOAD NOP IF NOT FORCED?
+	if(pS[I].NOP_Next != 0 && pS[I].PMR.Clear_NOP == 0){
+	  pS[I].ConReg.nop = 1;
+	}
+	printf("TREG %d: New uPC: CNT %.4o REG %.4o NXT %.o\n",I,pS[I].loc_ctr_cnt,pS[I].loc_ctr_reg.raw,pS[I].loc_ctr_nxt); 
+      }
+      // Update UI clock.
+      if(pS[I].ConReg.uinst_clock_l != 1){
+	pS[I].ConReg.uinst_clock_l = 1;
+	printf("TREG %d: UI CLOCK FALLING EDGE\n",I);
+	pS[I].uI_Clock_Pulse = true;
+	// FETCH IREG?
+	/*
+	  if(pS[I].spy_wrote_ireg == false){
+	  int addr = pS[I].loc_ctr_cnt&0xFFFF;
+	  int paddr = pS[I].CRAM_map[addr>>4] & 03777;
+	  paddr <<= 4;
+	  paddr |= (addr&0xF);
+	  if(pS[I].microtrace){
+	  printf("UI: MAP 0x%X -> 0x%X\n",pS[I].loc_ctr_cnt&0xFFFF,paddr);
+	  }
+	  pS[I].Iregister.raw = pS[I].WCS[paddr].raw;
+	  }else{
+	  pS[I].spy_wrote_ireg = false;
+	  }
+	*/
+	// Process HRAM
+	printf("TREG %d: Load History RAM\n",I);
+	pS[I].History_RAM[pS[I].History_Pointer&0xFFF] = pS[I].loc_ctr_cnt;
+	pS[I].Next_History_Pointer = pS[I].History_Pointer+1;
+	if(pS[I].Next_History_Pointer > 0xFFF){ pS[I].Next_History_Pointer = 0; }
+      }      
       // Ensure stopped
       pS[I].cpu_die_rq = 1;
     }
@@ -4426,7 +4480,10 @@ void lambda_clockpulse(int I){
   if(pS[I].cpu_die_rq){
     printf("[CPU %d] MASTER CLOCK STOPPED\n",I);
     pS[I].ConReg.halt_request = 1;
-    pS[I].ConReg.uinst_clock_l = 1;
+    pS[I].ConReg.uinst_clock_l = 0;
+    pS[I].uI_Clock_Pulse = false;
+    pS[I].wrote_uPC = false;
+    pS[I].SM_Clock = 1;
     //disassemble_IR();
     //disassemble_MIR();
 #ifdef LAMBDA_DEBUGTRACE
@@ -4445,11 +4502,4 @@ void lambda_clockpulse(int I){
     printf("Completed!\n");
 #endif
   }
-
-  // Handle HALT bit
-  if((pS[I].Iregister.Halt)){
-    printf("HALTed PC points to next inst\n");
-    pS[I].loc_ctr_reg.raw++;
-  }
-  
 }
