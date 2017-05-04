@@ -1998,6 +1998,9 @@ void lambda_nubus_slave(int I){
 	  disassemble_IR(I);
           NUbus_acknowledge = 1;
 	  pS[I].spy_wrote_ireg = true;
+	  // Writing IREG explicitcly clocks the A and M busses without a SM clock!
+	    // See the Q-to-SPY tests of the DP diagnostic for proof
+	  handle_source(I,1);
           return;
         }
         if(NUbus_Request == VM_BYTE_WRITE){
@@ -2008,6 +2011,9 @@ void lambda_nubus_slave(int I){
 	  if(NUbus_Address.Byte == 3){
 	    printf("DISASSEMBLY OF WRITTEN UI:\n");
 	    disassemble_IR(I);
+	    // Writing IREG explicitcly clocks the A and M busses without a SM clock!
+	    // See the Q-to-SPY tests of the DP diagnostic for proof
+	    handle_source(I,1);
 	  }
           return;
         }
@@ -2760,12 +2766,9 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	  if(pS[I].Iregister.ALU.Misc > 0){ printf("ALU-MISC "); pS[I].cpu_die_rq = 1; }
 	  if(pS[I].Iregister.ALU.Spare > 0){ printf("ALU-SPARE "); pS[I].cpu_die_rq = 1; }
 
-	  // Process Q register
-	  // This will get doubled! Do we need to do it?
-	  // handle_q_register(I);
-
 	  // Load MFO from O-bus
 	  pS[I].MFObus = pS[I].Obus;
+	  printf("TREG %d: ALU RESULT = 0x%.8lX OBus = 0x%.8X\n",I,pS[I].ALU_Result,pS[I].Obus);
 	  break;
 
 	case 1: // BYTE-OP
@@ -2886,7 +2889,148 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	  }		    
 	  break;
 	case 3: // DISP-OP
-	  printf("TREG: DISPATCH-OP\n");
+	  // printf("TREG: DISPATCH-OP\n");
+	  {
+	    uint32_t Mask=0;
+	    uint32_t dispatch_source=0;
+	    int gc_volatilty_flag;
+	    int oldspace_flag;
+	    int disp_address=0;
+	    // DispatchWord disp_word;
+	    
+	    // Stop for investigation if...
+	    // if(pS[I].Iregister.Dispatch.Constant > 0){ printf("Constant "); pS[I].cpu_die_rq = 1; }
+	    // if(pS[I].Iregister.Dispatch.LPC > 0){ printf("LPC "); pS[I].cpu_die_rq = 1; }
+	    // if(pS[I].Iregister.Dispatch.Write_VMA > 0){ printf("WriteVMA "); pS[I].cpu_die_rq = 1; }
+	    // if(pS[I].Iregister.Dispatch.Enable_GC_Volatility_Meta > 0){ printf("EnableGCVMeta "); pS[I].cpu_die_rq = 1; }
+	    // if(pS[I].Iregister.Dispatch.Enable_Oldspace_Meta > 0){ printf("EnableOldspaceMeta "); pS[I].cpu_die_rq = 1; }
+	    if(pS[I].Iregister.Dispatch.Spare > 0){ printf("DISP-SPARE "); pS[I].cpu_die_rq = 1; }
+	    // if(pS[I].popj_after_nxt != -1){ printf("DISPATCH with POPJ-AFTER-NEXT armed?\n"); pS[I].cpu_die_rq = 1; }
+	    
+	    // Load VMA from M source
+	    if(pS[I].Iregister.Dispatch.Write_VMA != 0){ pS[I].VMAregister.raw = pS[I].Mbus; }
+	    
+	    // Lambda doesn't have dispatch-source, so I assume it's always R-bus
+	    Mask = (1 << pS[I].Iregister.Dispatch.Len) - 1;      
+	    // Meta handling
+	    if(pS[I].Iregister.Dispatch.Enable_GC_Volatility_Meta || pS[I].Iregister.Dispatch.Enable_Oldspace_Meta){
+	      Mask = Mask & 0xfffffffe;	
+	    }
+	    // Investigation stop
+	    if(pS[I].Iregister.Dispatch.Enable_GC_Volatility_Meta && pS[I].Iregister.Dispatch.Enable_Oldspace_Meta){
+	      printf("DISPATCH: Enable GCV and Oldspace meta simultaneously?\n");
+	      pS[I].cpu_die_rq=10;
+	    }
+	    if(pS[I].microtrace){
+	      printf("DISPATCH: GENERATED MASK 0x%X\n",Mask);
+	    }
+	    
+	    // Lambda does not have a rotate direction flag.
+	    dispatch_source = left_rotate(pS[I].Mbus, pS[I].Iregister.Dispatch.Pos) & Mask;
+	    
+	    if(pS[I].microtrace){
+	      printf("DISPATCH: dispatch_source = 0x%X\n",dispatch_source);
+	    }
+	    
+	    // More meta bits
+	    gc_volatilty_flag = 0;
+	    if(pS[I].Iregister.Dispatch.Enable_GC_Volatility_Meta != 0){
+	      int present_gcv = 0;
+	      // IDENTIFYING GC VOLATILITY BIT
+	      // Bit 4?
+	      // "MAP2C-4 IS REALLY FROM THE GC-WRITE-LOGIC, NOT DIRECTLY THE L2MAP, THESE DAYS."
+	      // GCV happens when a NEWER object is written into an OLDER memory.
+	      
+	      // Do a map resolve for what's in MD
+	      pS[I].vm_lv2_index.raw = 0;
+	      pS[I].vm_lv2_index.VPage_Offset = pS[I].MDregister.VM.VPage_Offset;
+	      pS[I].vm_lv2_index.LV2_Block = pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].LV2_Block;
+	      // Extract the present LV1 GC volatility
+	      // present_gcv = pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB;
+	      present_gcv = (~pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB) & 03;
+	      // Raven's CACHED GCV is (lv2_control & 0x1800) >> 11;
+	      // GCV FLAG is (cached_gcv + 4 > (map_1_volatility ^ 7)) ? 0 : 1;
+	      
+	      // Our CACHED GCV is the lv2 meta bits of the last reference.
+	      
+	      // LV1 Meta Bits:
+	      // 2 bits!
+	      // "For hardware convenience, all three L1 map meta bits are stored in COMPLEMENTED form."
+	      // S  H    What
+	      // 0 (3) = Static Region (OLDEST)
+	      // 1 (2) = Dynamic Region
+	      // 2 (1) = Active Consing Region
+	      // 3 (0) = Extra PDL Region (NEWEST)
+	      
+	      // LV2 Meta Bits:
+	      // 6 bits! But the bottom 2 bits are the same as the LV1 bits.
+	      // 040 = Oldspace
+	      // 020 = GCV-Flag
+	      // 003 = LV1 GC Volatility
+	      
+	      // So, if CACHED GCV is less than PRESENT GCV we wrote a newer item into an older page.
+	      // The trap is taken if the flag is 0, so we want the inverse.
+	      // What do I do if the MB validity bit isn't set?
+	      
+	      // Meta bits are un-inverted now.
+	      // gc_volatilty_flag 1 == don't trap
+	      // So we want to set it 0 if we should trap.
+	      // if(pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB_Valid != 0){ printf("GCV: LV1 invalid?\n"); pS[I].cpu_die_rq=1; } // Investigate
+	      // if((pS[I].cached_gcv&03) <= present_gcv && pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB_Valid == 0){ gc_volatilty_flag = 1; }else{ pS[I].cpu_die_rq=0; } // ILLOP at PHTDEL6+11
+	      
+	      // This comparison is correct for non-inverted meta.
+	      // For the moment, LV1 invalidity forces a trap. This isn't conclusively proven correct, and may change.
+	      // if((pS[I].cached_gcv&03) > present_gcv && pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB_Valid == 0){ gc_volatilty_flag = 1; }
+	      if(pS[I].cached_gcv <= present_gcv && pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB_Valid == 0){
+		gc_volatilty_flag = 1;
+	      }
+	      
+	      if(pS[I].microtrace){
+		printf("DISPATCH: GCV: CACHED (LV2) GCV 0x%X\n",pS[I].cached_gcv&03);
+		printf("DISPATCH: GCV: PRESENT (LV1) GCV 0x%X\n",present_gcv);
+		printf("DISPATCH: GCV: LV1 ENT 0x%X = 0x%X (Meta 0x%X Validity %o)\n",
+		       pS[I].MDregister.VM.VPage_Block,pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].raw,
+		       pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB,
+		       pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB_Valid);
+		printf("DISPATCH: GCV: LV2 ENT 0x%X = 0x%X (Meta 0x%X)\n",
+		       pS[I].vm_lv2_index.raw,pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].raw,
+		       pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Meta);
+	      }
+	    }
+	    oldspace_flag = 0;
+	    if(pS[I].Iregister.Dispatch.Enable_Oldspace_Meta != 0){
+	      // Do a map resolve for what's in MD
+	      pS[I].vm_lv2_index.raw = 0;
+	      pS[I].vm_lv2_index.VPage_Offset = pS[I].MDregister.VM.VPage_Offset;
+	      pS[I].vm_lv2_index.LV2_Block = pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].LV2_Block;
+	      // Extract the oldspace bit (5?)
+	      // oldspace_flag 0 means trap (oldspace)
+	      // oldspace_flag 1 means don't trap (newspace)
+	      // Reversing this causes infinite loop (GCV never tested), so this has to be right.
+	      if((pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Meta&0x20) == 0x20){ oldspace_flag = 1; } // Not oldspace, don't trap
+	      if(pS[I].microtrace){
+		printf("DISPATCH: META: LV2 ENT 0x%X = 0x%X (Meta 0x%X)\n",
+		       pS[I].vm_lv2_index.raw,pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].raw,
+		       pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Meta);
+	      }
+	    }
+	    // Set dispatch address
+	    // Lambda uses the A source as the dispatch address!
+	    // disp_address = (mir_mask & MInst_Disp_Address) | dispatch_source | gc_volatilty_flag | oldspace_flag;
+	    disp_address = pS[I].Iregister.ASource|dispatch_source;
+	    // Handle oldspace/GCV meta
+	    if(pS[I].Iregister.Dispatch.Enable_Oldspace_Meta != 0 || pS[I].Iregister.Dispatch.Enable_GC_Volatility_Meta){
+	      // I think this is how this is supposed to work
+	      disp_address |= (oldspace_flag|gc_volatilty_flag);
+	    }
+	    // Load dispatch constant register
+	    pS[I].disp_constant_reg = pS[I].Iregister.Dispatch.Constant;
+	    // Lambda has no dispatch opcode field, so I assume it is always DISPATCH
+	    pS[I].disp_word.raw = pS[I].Amemory[(disp_address)]; // A-source is already offset // Dmemory[disp_address];
+	    if(pS[I].microtrace){
+	      printf("DISPATCH: GENERATED ADDRESS 0x%X AND FETCHED WORD 0x%X\n",disp_address,pS[I].disp_word.raw);
+	    }
+	  }
 	  break;
 	}
       }
@@ -3035,6 +3179,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	    // Handle destination selector
 	    handle_destination(I);
 	    // Process Q register
+	    if(pS[I].Iregister.ALU.QControl > 0){ printf("TREG: Q-CONTROL %o ALU-RESULT %lo\n",pS[I].Iregister.ALU.QControl,pS[I].ALU_Result); }
 	    handle_q_register(I);
 	    // Load MFO from O-bus
 	    pS[I].MFObus = pS[I].Obus;
@@ -3185,7 +3330,189 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	    }
 	    break;
 	  case 3: // DISP-OP
-	    printf("TREG: DISPATCH-OP\n");
+	    // printf("TREG: DISPATCH-OP\n");
+	    {
+	      // Handle dispatch word
+	      if(pS[I].microtrace){
+		char *location;
+		char symloc[100];
+		int offset;
+		
+		printf("DISPATCH: OP %s DEST ",jump_op_str[pS[I].disp_word.Operation]);
+		location = "";
+		offset = 0;
+		location = sym_find_last(1, pS[I].disp_word.PC, &offset);
+		if(location != 0){
+		  if(offset != 0){
+		    sprintf(symloc, "%s+%o", location, offset);
+		  }else{
+		    sprintf(symloc, "%s", location);
+		  }
+		  printf("%s",symloc);
+		}
+		printf(" (%o)\n",pS[I].disp_word.PC);
+	      }
+	      // Handle operation of Start-Memory-Read
+	      if(pS[I].disp_word.StartRead){
+		if(pS[I].microtrace != 0){
+		  printf(" START-MEMORY-READ");
+		}
+		// Load VMA from pS[I].Obus and initiate a read.
+		pS[I].VMAregister.raw = pS[I].Mbus; // Load VMA
+		VM_resolve_address(I,VM_READ,0);
+		if(pS[I].Page_Fault == 0 && pS[I].ConReg.Enable_NU_Master == 1){
+		  // Do it
+		  if(pS[I].RG_Mode.Aux_Stat_Count_Control == 01){
+		    pS[I].stat_counter_aux++;
+		  }
+		  if(pS[I].RG_Mode.Main_Stat_Count_Control == 01){
+		    pS[I].stat_counter_main++;
+		  }
+		  nubus_io_request(VM_READ,pS[I].NUbus_ID,pS[I].vm_phys_addr.raw,0);
+		}
+	      }
+	      // Handle operation
+	      switch(pS[I].disp_word.Operation){
+	      case 0: // Jump-Branch-Xct-Next
+		// Jump, but DO NOT inhibit the next instruction!
+		if(pS[I].loc_ctr_nxt != -1){
+		  printf("DISPATCH: Pending JUMP-After-Next collision investigation stop\n");
+		  pS[I].cpu_die_rq = 1;
+		}
+		pS[I].loc_ctr_nxt = pS[I].disp_word.PC;
+		break;
+		
+	      case 1: // Jump-Branch
+		if(pS[I].loc_ctr_reg.raw != (pS[I].loc_ctr_cnt + 1)){
+		  printf("DISPATCH: Pending JUMP collision investigation stop\n");
+		  pS[I].cpu_die_rq = 1;
+		}
+		pS[I].loc_ctr_reg.raw = pS[I].disp_word.PC;
+		pS[I].NOP_Next = 1;
+		break;
+		
+	      case 2: // Jump-Call-Xct-Next
+		// Call, but DO NOT inhibit the next instruction!
+		if(pS[I].popj_after_nxt != -1){
+		  // PJAN is armed. Do not double!
+		  pS[I].popj_after_nxt = -1;
+		}
+		pS[I].uPCS_ptr_reg++; pS[I].uPCS_ptr_reg &= 0xFF;
+		// Raven does not handle this, but should we? (Should Raven?)
+		if(pS[I].Iregister.Dispatch.LPC){
+		  printf("DISPATCH: LPC set w/ call-xct-next?\n");
+		  pS[I].cpu_die_rq = 1;
+		}
+		pS[I].uPCS_stack[pS[I].uPCS_ptr_reg] = pS[I].loc_ctr_reg.raw+1; // Pushes the address of the next instruction	
+		if(pS[I].microtrace){
+		  char *location;
+		  char symloc[100];
+		  int offset;
+		  
+		  printf("uStack[%o] = ",pS[I].uPCS_ptr_reg);
+		  
+		  location = "";
+		  offset = 0;
+		  location = sym_find_last(1, pS[I].uPCS_stack[pS[I].uPCS_ptr_reg], &offset);
+		  if(location != 0){
+		    if(offset != 0){
+		      sprintf(symloc, "%s+%o", location, offset);
+		    }else{
+		      sprintf(symloc, "%s", location);
+		    }
+		    printf("%s",symloc);
+		  }
+		  printf(" (%o)\n",pS[I].uPCS_stack[pS[I].uPCS_ptr_reg]);
+		}
+		pS[I].loc_ctr_nxt = pS[I].disp_word.PC;
+		if(pS[I].popj_after_nxt == 0){
+		  // PJAN is armed. We want this call to return to my caller instead of here.
+		  // So we'll pop this return address now.
+		  pS[I].uPCS_ptr_reg--;  pS[I].uPCS_ptr_reg &= 0xFF;
+		  pS[I].popj_after_nxt = -1;
+		}
+		break;
+		
+	      case 3: // Jump-Call
+		// PUSH ADDRESS
+		if(pS[I].popj_after_nxt != -1){
+		  // PJAN is armed. Do not double!
+		  //printf("RETURN-XCT-NEXT with PJAN armed!\n");
+		  pS[I].popj_after_nxt = -1;
+		}
+		pS[I].uPCS_ptr_reg++;  pS[I].uPCS_ptr_reg &= 0xFF;
+		if(pS[I].Iregister.Dispatch.LPC){
+		  pS[I].uPCS_stack[pS[I].uPCS_ptr_reg] = pS[I].loc_ctr_cnt; // Stack-Own-Address
+		}else{
+		  pS[I].uPCS_stack[pS[I].uPCS_ptr_reg] = pS[I].loc_ctr_reg.raw;
+		}
+		if(pS[I].microtrace){
+		  char *location;
+		  char symloc[100];
+		  int offset;
+		  
+		  printf("uStack[%o] = ",pS[I].uPCS_ptr_reg);
+		  
+		  location = "";
+		  offset = 0;
+		  location = sym_find_last(1, pS[I].uPCS_stack[pS[I].uPCS_ptr_reg], &offset);
+		  if(location != 0){
+		    if(offset != 0){
+		      sprintf(symloc, "%s+%o", location, offset);
+		    }else{
+		      sprintf(symloc, "%s", location);
+		    }	  
+		    printf("%s",symloc);
+		  }
+		  printf(" (%o)\n",pS[I].uPCS_stack[pS[I].uPCS_ptr_reg]);
+		}
+		// Jump
+		pS[I].loc_ctr_reg.raw = pS[I].disp_word.PC;
+		pS[I].NOP_Next = 1;
+		if(pS[I].popj_after_nxt == 0){
+		  // PJAN is armed. We want this call to return to my caller instead of here.
+		  // So we'll pop this return address now.
+		  pS[I].uPCS_ptr_reg--;  pS[I].uPCS_ptr_reg &= 0xFF;
+		  pS[I].popj_after_nxt = -1;
+		}
+		break;
+		
+	      case 4: // Jump-Return-XCT-Next
+		// POP ADDRESS
+		pS[I].loc_ctr_nxt = pS[I].uPCS_stack[pS[I].uPCS_ptr_reg]&0xFFFFF;
+		pS[I].uPCS_ptr_reg--;  pS[I].uPCS_ptr_reg &= 0xFF;
+		break;
+		
+		// Used in d-swap-quantum-map-dispatch, should return
+	      case 5: // Jump-Return
+		// POP ADDRESS
+		pS[I].loc_ctr_reg.raw = pS[I].uPCS_stack[pS[I].uPCS_ptr_reg]&0xFFFFF;
+		pS[I].uPCS_ptr_reg--;  pS[I].uPCS_ptr_reg &= 0xFF;
+		pS[I].NOP_Next = 1;
+		break;
+		
+	      case 6: // Undefined-NOP
+		/*
+		// PUSH ADDRESS
+		pS[I].uPCS_ptr_reg++;  pS[I].uPCS_ptr_reg &= 0xFF;
+		pS[I].uPCS_stack[pS[I].uPCS_ptr_reg] = pS[I].loc_ctr_reg.raw;
+		// POP ADDRESS
+		pS[I].loc_ctr_nxt = pS[I].uPCS_stack[pS[I].uPCS_ptr_reg]&0xFFFFF;
+		pS[I].uPCS_ptr_reg--;  pS[I].uPCS_ptr_reg &= 0xFF;
+		*/
+		break;
+		
+	      case 7: // Undefined-NOP (Raven SKIP)
+		pS[I].loc_ctr_reg.raw++;
+		pS[I].NOP_Next = 1;
+		break;
+		
+		
+	      default:
+		printf("Unknown dispatch RPN %o\n",pS[I].disp_word.Operation);
+		pS[I].cpu_die_rq=1;
+	      }
+	    }
 	    break;
 	  }
 	}
@@ -3202,7 +3529,8 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	 pS[I].TREG.A_WE_L == 1 && pS[I].TREG.M_WE_L == 1){
 	// This is probably the source read
 	printf("TREG %d: Triggering source reads\n",I);
-	handle_source(I,1);
+	handle_source(I,0);
+	printf("TREG %d: M = 0x%.8X A = 0x%.8X\n",I,pS[I].Mbus,pS[I].Abus);
       }
     }else{
       printf("RG %d: PMR: SM CLOCK HI: TRAM_PC 0%o\n",I,pS[I].TRAM_PC);		
@@ -4102,9 +4430,7 @@ void lambda_clockpulse(int I){
       if(pS[I].Iregister.Dispatch.Spare > 0){ printf("DISP-SPARE "); pS[I].cpu_die_rq = 1; }
       // if(pS[I].popj_after_nxt != -1){ printf("DISPATCH with POPJ-AFTER-NEXT armed?\n"); pS[I].cpu_die_rq = 1; }
 
-      // Load VMA from MD     
-      // if(pS[I].Iregister.Dispatch.Write_VMA != 0){ pS[I].VMAregister = pS[I].MDregister; }
-      // Load VMA from M source instead!
+      // Load VMA from M source
       if(pS[I].Iregister.Dispatch.Write_VMA != 0){ pS[I].VMAregister.raw = pS[I].Mbus; }
       
       // Lambda doesn't have dispatch-source, so I assume it's always R-bus
@@ -4168,9 +4494,6 @@ void lambda_clockpulse(int I){
 	// So, if CACHED GCV is less than PRESENT GCV we wrote a newer item into an older page.
 	// The trap is taken if the flag is 0, so we want the inverse.
 	// What do I do if the MB validity bit isn't set?
-
-	// I think this is how this is supposed to go
-	// if((pS[I].cached_gcv&03) >= present_gcv && pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB_Valid == 0){ gc_volatilty_flag = 1; }else{ pS[I].cpu_die_rq=1; } 
 
 	// Meta bits are un-inverted now.
 	// gc_volatilty_flag 1 == don't trap
@@ -4405,12 +4728,10 @@ void lambda_clockpulse(int I){
         pS[I].NOP_Next = 1;
         break;
 
-
       default:
 	printf("Unknown dispatch RPN %o\n",disp_word.Operation);
 	pS[I].cpu_die_rq=1;
       }
-
     }    
     break;
   }

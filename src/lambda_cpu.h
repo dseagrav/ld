@@ -380,6 +380,7 @@ struct lambdaState {
   bool     ALU_Fixnum_Oflow;          // FIXNUM Overflow
   bool     imod_en;                   // Enable IMOD
   bool     spy_wrote_ireg;            // Spy wrote the IR, so don't fetch over it.
+  DispatchWord disp_word;             // Dispatch operation word  
   uint32_t imod_lo,imod_hi;           // IMOD storage
   uint32_t Multiplier_Input;          // Multiplier input
   uint32_t Multiplier_Output;         // Multiplier output
