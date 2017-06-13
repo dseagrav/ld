@@ -76,6 +76,8 @@ void vcmem_kb_int(int vn){
     }
   }
 }
+//  has last write whatsoever (except 0 and 0x70)
+unsigned char last_kbd_ctrl_write = 0;
 
 void vcmem_clock_pulse(int vn){
   // Time has passed...
@@ -321,6 +323,21 @@ void vcmem_clock_pulse(int vn){
 	  if(NUbus_trace == 1){
 	    printf("VCMEM: Serial Port A Command = 0x%X\n",NUbus_Data.byte[0]);
 	  }
+	  // BV tracing beep, starting from uc-hacks:
+          // It seems every other write is a register number, and the other is the value.
+          // Register 5 controls the beep (at least):
+          // #xea to turn it off, and #xfa to "click" ("send break" bit, cf uc-hacks)
+          // A tv:beep (with default args) generates 78 times 0x05, 0xfa, 0x05, 0xea + ending 0x05, 0xea
+          // Possible hack: track 0xea/0xfa writes, output \a when two successive 0xea
+          // That works, but only for default tv:%beep args
+          if(NUbus_Data.byte[0] != 0){
+            // many continuous 0 writes, it seems - ignore those
+            if (last_kbd_ctrl_write == 0x05) { // last write whatsoever (except 0)
+              // let kernel decide what to do
+              audio_control(NUbus_Data.byte[0] == 0xfa);
+            }
+            last_kbd_ctrl_write = NUbus_Data.byte[0];  // remember last write
+          }
 	  NUbus_acknowledge=1;
 	  return;	
 	}

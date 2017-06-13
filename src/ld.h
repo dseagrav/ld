@@ -36,6 +36,9 @@ void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data);
 void framebuffer_update_byte(int vn,uint32_t addr,uint8_t data);
 void set_bow_mode(int vn,int mode);
 
+// beep on/off (called when vcmem keyboard control register 5 toggles "send break" bit.
+void audio_control(int onoff);
+
 // Host ethernet interface
 void ether_tx_pkt(uint8_t *data,uint32_t len);
 uint32_t ether_rx_pkt();

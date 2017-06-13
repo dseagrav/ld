@@ -2464,6 +2464,23 @@ void debug_clockpulse(){
 }
 #endif
 
+// Handle writes to keyboard control reg #5 to click/not (cf vcmem.c)
+void audio_control(int onoff) {
+  static int state = 0;
+  static uint64_t toggle_time = 0;
+
+  if(onoff == state){
+    return;
+  }
+  // this value seems to "work" for single beeps, and multiple beeps (around 4)
+  // with default values for TV:BEEP-WAVELENGTH and TV:BEEP-DURATION,
+  if(onoff && (real_time > (toggle_time + 1))){
+    printf("\aBEEP\n");
+    toggle_time = real_time;
+  }
+  state = onoff;
+}
+
 void parse_config_line(char *line){
   char *tok = NULL;
   tok = strtok(line," \t\r\n");
