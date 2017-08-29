@@ -186,6 +186,9 @@ int ether_init(){
       }
       // Some other error happened, bail
       return(-1);
+    }else{
+      // Done!
+      break;
     }
     x++;
   }
