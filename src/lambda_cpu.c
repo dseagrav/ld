@@ -530,14 +530,14 @@ void disassembleWork(void* f, uint64_t inst, int debLog){
     if(ui.Destination.A.Flag != 0){
       location = sym_find_by_val(1, 4, ui.Destination.A.Addr);
       if(location != 0){
-        fprintf(f, "%s(%o)",location,ui.Destination.A.Addr);
+        fprintf(f, "%s(A-%o)",location,ui.Destination.A.Addr);
       }else{
         fprintf(f, "A:%o",ui.Destination.A.Addr);
       }
     }else{
       location = sym_find_by_val(1, 5, ui.Destination.M.Addr);
       if(location != 0){
-        fprintf(f, "%s(%o)",location,ui.Destination.M.Addr);
+        fprintf(f, "%s(AM-%o)",location,ui.Destination.M.Addr);
       }else{
         fprintf(f, "M:%o",ui.Destination.M.Addr);
       }
@@ -1999,7 +1999,7 @@ void lambda_nubus_slave(int I){
           NUbus_acknowledge = 1;
 	  pS[I].spy_wrote_ireg = true;
 	  // Writing IREG explicitcly clocks the A and M busses without a SM clock!
-	    // See the Q-to-SPY tests of the DP diagnostic for proof
+	  // See the Q-to-SPY tests of the DP diagnostic for proof
 	  handle_source(I,1);
           return;
         }
@@ -3063,6 +3063,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	case 01004: // Used by lambda-diag
 	case 01005: // Used by lambda-diag for force-source codeword
 	case 03000: // DISPATCH TO EXECUTE PHASE
+	case 03002: // Used After Dispatch uInst, goes to 3000
 	case 04000: // HALT SETZ
 	case 04400: // HALT JUMP
 	  switch(pS[I].TREG.next_select){
