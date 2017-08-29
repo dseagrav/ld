@@ -138,6 +138,12 @@ CONFIGURING LAMBDADELTA
   flag. You should only have to modify this if you modify the microcode.
   The defaults are 0156, 0157, and 0170 for both processors.
 
+  pixel_on 0xVVVVVVVV
+  pixel_off 0xVVVVVVVV
+  Sets the pixel values used for on and off. The standard pixel format is
+  AARRGGBB where AA is Alpha, RR is Red, GG is Green, BB is Blue. The default
+  pixel values are 0xFFFFFFFF for on and 0x00000000 for off.
+
   map_key HV LV
   Maps host key HV to Lambda key LV.
   HV is a decimal SDL key code, LV is an octal Lambda key code.
