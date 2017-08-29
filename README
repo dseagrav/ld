@@ -144,6 +144,11 @@ CONFIGURING LAMBDADELTA
   AARRGGBB where AA is Alpha, RR is Red, GG is Green, BB is Blue. The default
   pixel values are 0xFFFFFFFF for on and 0x00000000 for off.
 
+  sdl_quit STATE
+  Enables or disables handling of the platform-specific SDL_QUIT event.
+  (Alt-F4,Command-Q,etc.) STATE is one of on,off,yes,no,true,or false.
+  The default is enabled.
+
   map_key HV LV
   Maps host key HV to Lambda key LV.
   HV is a decimal SDL key code, LV is an octal Lambda key code.

@@ -102,6 +102,9 @@ int debug_log_enable = 0;
 int debug_log_trigger = 0;
 int dump_seq = 0;
 
+// Whether to honour SDL_QUIT event (generated e.g. by Command-Q on a Mac)
+int quit_on_sdl_quit = 1;
+
 // Throttle timers
 volatile uint64_t real_time = 0;
 volatile uint64_t emu_time = 0;
@@ -788,7 +791,9 @@ void sdl_refresh(void){
       break;
 
     case SDL_QUIT:
-      sdl_system_shutdown_request();
+      if(quit_on_sdl_quit != 0){
+	sdl_system_shutdown_request();
+      }
       break;
       
     default:
@@ -1335,7 +1340,9 @@ void sdl_refresh(void){
       break;
 
     case SDL_QUIT:
-      sdl_system_shutdown_request();
+      if(quit_on_sdl_quit != 0){
+	sdl_system_shutdown_request();
+      }
       break;
     case SDL_MOUSEMOTION:
     case SDL_MOUSEBUTTONDOWN:
@@ -2643,7 +2650,7 @@ void parse_config_line(char *line){
   }
   if(strcasecmp(tok,"pixel_on") == 0){
     tok = strtok(NULL," \t\r\n");
-    if (tok != NULL){
+    if(tok != NULL){
       uint32_t sval = strtol(tok,(char **)NULL, 16);
       pixel_on = sval;
       printf("pixel_on set to 0x%X\n", pixel_on);
@@ -2651,11 +2658,27 @@ void parse_config_line(char *line){
   }
   if(strcasecmp(tok,"pixel_off") == 0){
     tok = strtok(NULL," \t\r\n");
-    if (tok != NULL){
+    if(tok != NULL){
       uint32_t sval = strtol(tok,(char **)NULL, 16);
       pixel_off = sval;
       printf("pixel_off (%s) set to 0x%X\n", tok, pixel_off);
     }
+  }
+  if(strcasecmp(tok,"sdl_quit") == 0){
+    // Turn off handling of SDL_QUIT event (caused by e.g. Command-Q on a Mac)
+    tok = strtok(NULL," \t\r\n");
+    if(tok != NULL){
+      if((strcasecmp(tok,"on") == 0) || (strcasecmp(tok,"yes") == 0) || (strcasecmp(tok,"true") == 0)){
+        quit_on_sdl_quit = 1;
+      }else{
+	if((strcasecmp(tok,"off") == 0) || (strcasecmp(tok,"no") == 0) || (strcasecmp(tok,"false") == 0)){
+	  quit_on_sdl_quit = 0;
+	}else{
+	  printf("sdl_quit: unrecognized value '%s' (on/true/yes, off/false/no)\n", tok);
+	}
+      }
+    }
+    return;
   }
 
   if(strcasecmp(tok,"map_key") == 0){
