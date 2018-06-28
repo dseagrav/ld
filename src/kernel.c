@@ -2572,6 +2572,17 @@ void parse_config_line(char *line){
       printf("Using 3Com Ethernet interface %s\n",ether_iface);
     }
   }
+#ifdef USE_UTUN
+  if(strcasecmp(tok,"guest_addr") == 0){
+    extern char guest_ip_addr[32];
+    // Guest IP address (for utun early init)
+    tok = strtok(NULL," \t\r\n");
+    if(tok != NULL){
+      strncpy(guest_ip_addr,tok,30);
+      printf("Using guest IP address %s\n",guest_ip_addr);
+    }
+  }
+#endif
   if(strcasecmp(tok,"disk") == 0){
     // Disk FN
     int dsk = 0;

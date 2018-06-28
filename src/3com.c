@@ -189,12 +189,61 @@ uint32_t ether_rx_pkt(){
 char ether_bpfn[64];
 #ifdef USE_UTUN
 // For tunnel frame diverter hack
+char guest_ip_addr[32] = "";
 ETH_HW_ADDR_Reg HOST_HW_ADDR;
 struct in_addr HOST_IN_ADDR;
 struct in_addr GUEST_IN_ADDR;
 int utun_fd = -1;
 int host_iface_state = -1;
 int gen_arp_response = -1; // ARP response forgery timer
+#endif
+
+#ifdef USE_UTUN
+void activate_utun(){
+  struct ctl_info ctlInfo;
+  struct sockaddr_ctl sc;
+  
+  strlcpy(ctlInfo.ctl_name, UTUN_CONTROL_NAME, sizeof(ctlInfo.ctl_name));
+  utun_fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
+  if (utun_fd < 0) {
+    perror("utun: socket()");	    
+  }else{
+    if(ioctl(utun_fd, CTLIOCGINFO, &ctlInfo) == -1){
+      close(utun_fd);
+      perror("utun: ioctl()");
+    }else{
+      printf("ctl_info: {ctl_id: %ud, ctl_name: %s}\n",ctlInfo.ctl_id, ctlInfo.ctl_name);
+      
+      sc.sc_id = ctlInfo.ctl_id;
+      sc.sc_len = sizeof(sc);
+      sc.sc_family = AF_SYSTEM;
+      sc.ss_sysaddr = AF_SYS_CONTROL;
+      sc.sc_unit = 10;
+      
+      if(connect(utun_fd, (struct sockaddr *)&sc, sizeof(sc)) < 0){
+	perror("utun: connect()");
+		  close(utun_fd);
+      }else{
+	char syscmd[512];
+	int rv=0;
+	// Become nonblocking
+	fcntl(utun_fd, F_SETFL, O_NONBLOCK);
+	
+	// Set IP addresses!		  
+	// ifconfig utun9 inet 10.0.0.165 10.0.0.50 netmask 255.255.255.255
+	sprintf(syscmd,"ifconfig utun9 inet %s",inet_ntoa(HOST_IN_ADDR));
+	sprintf(syscmd,"%s %s netmask 255.255.255.255",syscmd,inet_ntoa(GUEST_IN_ADDR));
+	rv = system(syscmd);
+	if(rv < 0){
+	  printf("UTUN: Interface IP configuration failed, do it yourself\n");
+	}
+	// Done
+	printf("UTUN: Initialization completed!\n");
+	host_iface_state++;
+      }
+    }
+  }
+}
 #endif
 
 int ether_init(){
@@ -258,6 +307,15 @@ int ether_init(){
 
   if(HOST_HW_ADDR.byte[0] != 0 && HOST_IN_ADDR.s_addr != 0){
     host_iface_state = 0; // Pre-init done
+    if(strlen(guest_ip_addr) > 0){
+      if(inet_aton(guest_ip_addr,&GUEST_IN_ADDR) != 0){
+	printf("BPF: Guest IP address is %s\n",inet_ntoa(GUEST_IN_ADDR));
+	// Initialize tunnel
+	activate_utun();
+      }else{
+	printf("UTUN: Unable to parse configured guest IP address, fallback to ARP\n");
+      }
+    }
   }
 #endif
 
@@ -367,54 +425,11 @@ void ether_tx_pkt(uint8_t *data,uint32_t len){
 	if((ntohl(*(uint32_t *)(data+(ETHER_HDR_LEN+24)))) == ntohl(HOST_IN_ADDR.s_addr)){
 	  // Yes! Do we know our IP address?
 	  if(host_iface_state == 0){
-	    // No
-	    struct ctl_info ctlInfo;
-	    struct sockaddr_ctl sc;
-	    
-	    // Take it	  
+	    // No - Take it
 	    GUEST_IN_ADDR = *(struct in_addr *)(data+(ETHER_HDR_LEN+14));
 	    printf("BPF: Guest IP address is %s\n",inet_ntoa(GUEST_IN_ADDR));
-	    // Initialize tunnel!
-	    strlcpy(ctlInfo.ctl_name, UTUN_CONTROL_NAME, sizeof(ctlInfo.ctl_name));
-	    utun_fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
-	    if (utun_fd < 0) {
-	      perror("utun: socket()");	    
-	    }else{
-	      if(ioctl(utun_fd, CTLIOCGINFO, &ctlInfo) == -1){
-		close(utun_fd);
-		perror("utun: ioctl()");
-	      }else{
-		printf("ctl_info: {ctl_id: %ud, ctl_name: %s}\n",ctlInfo.ctl_id, ctlInfo.ctl_name);
-		
-		sc.sc_id = ctlInfo.ctl_id;
-		sc.sc_len = sizeof(sc);
-		sc.sc_family = AF_SYSTEM;
-		sc.ss_sysaddr = AF_SYS_CONTROL;
-		sc.sc_unit = 10;
-		
-		if(connect(utun_fd, (struct sockaddr *)&sc, sizeof(sc)) < 0){
-		  perror("utun: connect()");
-		  close(utun_fd);
-		}else{
-		  char syscmd[512];
-		  int rv=0;
-		  // Become nonblocking
-		  fcntl(utun_fd, F_SETFL, O_NONBLOCK);
-		  
-		  // Set IP addresses!		  
-		  // ifconfig utun9 inet 10.0.0.165 10.0.0.50 netmask 255.255.255.255
-		  sprintf(syscmd,"ifconfig utun9 inet %s",inet_ntoa(HOST_IN_ADDR));
-		  sprintf(syscmd,"%s %s netmask 255.255.255.255",syscmd,inet_ntoa(GUEST_IN_ADDR));
-		  rv = system(syscmd);
-		  if(rv < 0){
-		    printf("UTUN: Interface IP configuration failed, do it yourself\n");
-		  }
-		  // Done
-		  printf("UTUN: Initialization completed!\n");
-		  host_iface_state++;
-		}
-	      }
-	    }
+	    // Initialize tunnel
+	    activate_utun();
 	  }
 	  if(host_iface_state > 0 && gen_arp_response < 0){
 	    // Generate ARP response packet
@@ -955,6 +970,13 @@ int yaml_network_mapping_loop(yaml_parser_t *parser){
 	  printf("Using 3Com Ethernet interface %s\n",ether_iface);	  
 	  goto value_done;
 	}
+#ifdef USE_UTUN
+        if(strcmp(key,"guest-ip") == 0){
+	  strncpy(guest_in_addr,value,31);
+	  printf("Using guest IP address %s\n",guest_in_addr);	  
+	  goto value_done;
+	}
+#endif
 	if(strcmp(key,"address") == 0){
 	  int x = 0;
 	  char *tok;
