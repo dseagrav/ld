@@ -24,6 +24,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
@@ -46,7 +47,21 @@
 // bpf ethernet interface
 #if !defined (HAVE_LINUX_IF_H) && defined (HAVE_NET_BPF_H)
 #include <net/if.h>
+#ifdef USE_UTUN
+#include <netinet/in.h>
+#include <net/if_dl.h>
+#include <net/if_arp.h>
+#include <net/if_types.h>
+#include <net/ethernet.h>
+#endif
 #include <net/bpf.h>
+#ifdef USE_UTUN
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <sys/sys_domain.h>
+#include <sys/kern_control.h>
+#include <net/if_utun.h>
+#endif
 #endif
 
 // YAML configuration
@@ -172,13 +187,81 @@ uint32_t ether_rx_pkt(){
 #define USES_ETHER_CODE "BPF"
 
 char ether_bpfn[64];
+#ifdef USE_UTUN
+// For tunnel frame diverter hack
+ETH_HW_ADDR_Reg HOST_HW_ADDR;
+struct in_addr HOST_IN_ADDR;
+struct in_addr GUEST_IN_ADDR;
+int utun_fd = -1;
+int host_iface_state = -1;
+int gen_arp_response = -1; // ARP response forgery timer
+#endif
 
 int ether_init(){
   struct ifreq ifr;
   int fd, err, flags;
   int x=0;
   uint32_t y;
+#ifdef USE_UTUN
+  struct ifaddrs *addrlist = NULL;
+  
+  // Determine host's ethernet and IP addresses.
+  x  = getifaddrs(&addrlist);
+  if(x == 0){
+    struct ifaddrs *addr = addrlist;
+    while(addr != NULL){
+      if(strcmp(addr->ifa_name,ether_iface) == 0){
+	// This is the one we want!
+	if(addr->ifa_addr->sa_family == AF_LINK){
+	  // link-level address
+	  struct sockaddr_dl *linkaddr = (struct sockaddr_dl *)addr->ifa_addr;
+	  if(linkaddr->sdl_type == IFT_ETHER && linkaddr->sdl_alen == 6){
+	    // Ethernet MAC	    
+	    uint8_t *eaddr = (uint8_t *)LLADDR(linkaddr);
+	    HOST_HW_ADDR.byte[0] = eaddr[0];
+	    HOST_HW_ADDR.byte[1] = eaddr[1];
+	    HOST_HW_ADDR.byte[2] = eaddr[2];
+	    HOST_HW_ADDR.byte[3] = eaddr[3];
+	    HOST_HW_ADDR.byte[4] = eaddr[4];
+	    HOST_HW_ADDR.byte[5] = eaddr[5];
+	    HOST_HW_ADDR.byte[6] = 0;
+	    HOST_HW_ADDR.byte[7] = 0;	    
+	    printf("BPF: Host MAC address %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+		   HOST_HW_ADDR.byte[0],HOST_HW_ADDR.byte[1],HOST_HW_ADDR.byte[2],
+		   HOST_HW_ADDR.byte[3],HOST_HW_ADDR.byte[4],HOST_HW_ADDR.byte[5]);
+	  }else{
+	    printf("BPF: Non-ethernet link address, len %d data ",addr->ifa_addr->sa_len);
+	    int y = 0;
+	    while(y < addr->ifa_addr->sa_len){
+	      if(y > 0){ printf(":"); }
+	      printf("%.2hhX",addr->ifa_addr->sa_data[y]);
+	      y++;
+	    }
+	    printf("\n");
+	  }
+	}
+	if(addr->ifa_addr->sa_family == AF_INET){
+	  // IPv4
+	  struct sockaddr_in *ip4addr = (struct sockaddr_in *)addr->ifa_addr;
+	  HOST_IN_ADDR.s_addr = ip4addr->sin_addr.s_addr;
+	  printf("BPF: Host IPv4 address %s\n",inet_ntoa(HOST_IN_ADDR));
+	}
+	// printf("BPF: Addr family %d\n",addr->ifa_addr->sa_family);
+      }
+      addr = addr->ifa_next;
+    }    
+    freeifaddrs(addrlist);
+  }else{
+    perror("BPF:getifaddrs()");
+    return(0);
+  }
 
+  if(HOST_HW_ADDR.byte[0] != 0 && HOST_IN_ADDR.s_addr != 0){
+    host_iface_state = 0; // Pre-init done
+  }
+#endif
+
+  x = 0;
   while(x < 16){
     sprintf(ether_bpfn,"/dev/bpf%d",x);
     // Open device
@@ -261,6 +344,119 @@ int ether_init(){
 void ether_tx_pkt(uint8_t *data,uint32_t len){
   ssize_t res = 0;
   if(ether_fd < 0){ return; }
+
+#ifdef USE_UTUN
+  // HOST PACKET DIVERSION HACK
+  // BPF on OS X cannot send packets to the local host, so we want to divert packets intended for the local host
+  // to a tunnel interface instead.
+  // Until this is fixed, this means we can only use IP to speak with the local host.
+
+  // Is this a broadcast packet?  
+  struct ether_header *header = (struct ether_header *)data;
+  if(header->ether_dhost[0] == 0xFF && header->ether_dhost[1] == 0xFF && header->ether_dhost[2] == 0xFF &&
+     header->ether_dhost[3] == 0xFF && header->ether_dhost[4] == 0xFF && header->ether_dhost[5] == 0xFF){
+    // Yes, is it an ARP packet?
+    if(ntohs(header->ether_type) == ETHERTYPE_ARP){
+      // Yes.
+      struct arphdr *arp_header = (struct arphdr *)(data+ETHER_HDR_LEN);
+      // Ethernet request for IP address?
+      if(ntohs(arp_header->ar_hrd) == ARPHRD_ETHER &&
+	 ntohs(arp_header->ar_pro) == ETHERTYPE_IP &&
+	 ntohs(arp_header->ar_op) == ARPOP_REQUEST){
+	// Is it for the host?
+	if((ntohl(*(uint32_t *)(data+(ETHER_HDR_LEN+24)))) == ntohl(HOST_IN_ADDR.s_addr)){
+	  // Yes! Do we know our IP address?
+	  if(host_iface_state == 0){
+	    // No
+	    struct ctl_info ctlInfo;
+	    struct sockaddr_ctl sc;
+	    
+	    // Take it	  
+	    GUEST_IN_ADDR = *(struct in_addr *)(data+(ETHER_HDR_LEN+14));
+	    printf("BPF: Guest IP address is %s\n",inet_ntoa(GUEST_IN_ADDR));
+	    // Initialize tunnel!
+	    strlcpy(ctlInfo.ctl_name, UTUN_CONTROL_NAME, sizeof(ctlInfo.ctl_name));
+	    utun_fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
+	    if (utun_fd < 0) {
+	      perror("utun: socket()");	    
+	    }else{
+	      if(ioctl(utun_fd, CTLIOCGINFO, &ctlInfo) == -1){
+		close(utun_fd);
+		perror("utun: ioctl()");
+	      }else{
+		printf("ctl_info: {ctl_id: %ud, ctl_name: %s}\n",ctlInfo.ctl_id, ctlInfo.ctl_name);
+		
+		sc.sc_id = ctlInfo.ctl_id;
+		sc.sc_len = sizeof(sc);
+		sc.sc_family = AF_SYSTEM;
+		sc.ss_sysaddr = AF_SYS_CONTROL;
+		sc.sc_unit = 10;
+		
+		if(connect(utun_fd, (struct sockaddr *)&sc, sizeof(sc)) < 0){
+		  perror("utun: connect()");
+		  close(utun_fd);
+		}else{
+		  char syscmd[512];
+		  int rv=0;
+		  // Become nonblocking
+		  fcntl(utun_fd, F_SETFL, O_NONBLOCK);
+		  
+		  // Set IP addresses!		  
+		  // ifconfig utun9 inet 10.0.0.165 10.0.0.50 netmask 255.255.255.255
+		  sprintf(syscmd,"ifconfig utun9 inet %s",inet_ntoa(HOST_IN_ADDR));
+		  sprintf(syscmd,"%s %s netmask 255.255.255.255",syscmd,inet_ntoa(GUEST_IN_ADDR));
+		  rv = system(syscmd);
+		  if(rv < 0){
+		    printf("UTUN: Interface IP configuration failed, do it yourself\n");
+		  }
+		  // Done
+		  printf("UTUN: Initialization completed!\n");
+		  host_iface_state++;
+		}
+	      }
+	    }
+	  }
+	  if(host_iface_state > 0 && gen_arp_response < 0){
+	    // Generate ARP response packet
+	    gen_arp_response = 1; // Slight delay enough?
+	  }
+	}else{
+	  printf("PKT: DST IP 0x%.8X vs 0x%.8X\n",(ntohl(*(uint32_t *)(data+(ETHER_HDR_LEN+24)))),ntohl(HOST_IN_ADDR.s_addr));
+	}
+	/*
+	printf("ARP REQUEST: Find %s",inet_ntoa(*(struct in_addr *)(data+(ETHER_HDR_LEN+24))));
+	printf(" for %s",inet_ntoa(*(struct in_addr *)(data+(ETHER_HDR_LEN+14))));
+	printf(" (stored %s)\n",inet_ntoa(GUEST_IN_ADDR));
+	*/
+      }
+    }
+  }else{
+    // Is this a unicast packet for our host?
+    if(host_iface_state == 1){
+      if(header->ether_dhost[0] == HOST_HW_ADDR.byte[0] &&
+	 header->ether_dhost[1] == HOST_HW_ADDR.byte[1] &&
+	 header->ether_dhost[2] == HOST_HW_ADDR.byte[2] &&
+	 header->ether_dhost[3] == HOST_HW_ADDR.byte[3] &&
+	 header->ether_dhost[4] == HOST_HW_ADDR.byte[4] &&
+	 header->ether_dhost[5] == HOST_HW_ADDR.byte[5]){
+	// Yes!
+	// printf("3COM: UNICAST PACKET FOR HOST\n");
+	// IPv4?
+	if(ntohs(header->ether_type) == ETHERTYPE_IP){
+	  // Yes, relay it
+	  uint8_t tunbuf[0x800];
+	  memcpy(tunbuf+4,data+14,len-14); // Get data
+	  *((uint32_t *)&tunbuf) = htonl(AF_INET);
+	  res = write(utun_fd,tunbuf,len-10);
+	  if(res < 0){
+	    perror("utun:write()");
+	  }  	  
+	}
+      }
+    }
+  }
+#endif
+    
   // printf("Ether: Sending %d bytes\n",len);
   res = write(ether_fd,data,len);
   if(res < 0){
@@ -279,7 +475,110 @@ uint32_t ether_rx_pkt(){
 
   if(ether_fd < 0){ return(0); }
   if(bpf_buf_offset == 0){
-    // Get more packets
+#ifdef USE_UTUN
+    // ARP forgery timer active?
+    if(gen_arp_response >= 0){      
+      gen_arp_response--;      
+      if(gen_arp_response == -1){
+	// Generate response
+	// Packet goes at ether_rx_buf+4 to account for Linux ethernet header
+	memset(ether_rx_buf, 0, 0x800); // Clobber
+	// Ethernet header
+	ether_rx_buf[4] = ETH_HW_ADDR.byte[0];   // Destination address
+	ether_rx_buf[5] = ETH_HW_ADDR.byte[1];
+	ether_rx_buf[6] = ETH_HW_ADDR.byte[2];
+	ether_rx_buf[7] = ETH_HW_ADDR.byte[3];
+	ether_rx_buf[8] = ETH_HW_ADDR.byte[4];
+	ether_rx_buf[9] = ETH_HW_ADDR.byte[5];
+	ether_rx_buf[10] = HOST_HW_ADDR.byte[0]; // Source Address
+	ether_rx_buf[11] = HOST_HW_ADDR.byte[1];
+	ether_rx_buf[12] = HOST_HW_ADDR.byte[2];
+	ether_rx_buf[13] = HOST_HW_ADDR.byte[3];
+	ether_rx_buf[14] = HOST_HW_ADDR.byte[4];
+	ether_rx_buf[15] = HOST_HW_ADDR.byte[5];
+	ether_rx_buf[16] = 0x08;                 // ARP (0x0806)
+	ether_rx_buf[17] = 0x06; 
+	// ARP packet
+	ether_rx_buf[18] = 0x00;                 // HTYPE (1 = ethernet)
+	ether_rx_buf[19] = 0x01;
+	ether_rx_buf[20] = 0x08;                 // PTYPE (0x800 = IPv4)
+	ether_rx_buf[21] = 0x00;
+	ether_rx_buf[22] = 0x06;                 // HLEN (Ethernet = 6)
+	ether_rx_buf[23] = 0x04;                 // PLEN (IPv4 = 4)
+	ether_rx_buf[24] = 0x00;                 // OPER (0x0002 = reply)
+	ether_rx_buf[25] = 0x02;
+	ether_rx_buf[26] = HOST_HW_ADDR.byte[0]; // Sender Hardware Address
+	ether_rx_buf[27] = HOST_HW_ADDR.byte[1];
+	ether_rx_buf[28] = HOST_HW_ADDR.byte[2];
+	ether_rx_buf[29] = HOST_HW_ADDR.byte[3];
+	ether_rx_buf[30] = HOST_HW_ADDR.byte[4];
+	ether_rx_buf[31] = HOST_HW_ADDR.byte[5];
+	ether_rx_buf[32] = (HOST_IN_ADDR.s_addr&0x000000FF); // Sender Protocol Address
+	ether_rx_buf[33] = ((HOST_IN_ADDR.s_addr&0x0000FF00)>>8);
+	ether_rx_buf[34] = ((HOST_IN_ADDR.s_addr&0x00FF0000)>>16);
+	ether_rx_buf[35] = ((HOST_IN_ADDR.s_addr&0xFF000000)>>24);
+	ether_rx_buf[36] = ETH_HW_ADDR.byte[0]; // Target Hardware Address
+	ether_rx_buf[37] = ETH_HW_ADDR.byte[1];
+	ether_rx_buf[38] = ETH_HW_ADDR.byte[2];
+	ether_rx_buf[39] = ETH_HW_ADDR.byte[3];
+	ether_rx_buf[40] = ETH_HW_ADDR.byte[4];
+	ether_rx_buf[41] = ETH_HW_ADDR.byte[5];
+	ether_rx_buf[42] = (GUEST_IN_ADDR.s_addr&0x000000FF); // Target Protocol Address
+	ether_rx_buf[43] = ((GUEST_IN_ADDR.s_addr&0x0000FF00)>>8);
+	ether_rx_buf[44] = ((GUEST_IN_ADDR.s_addr&0x00FF0000)>>16);
+	ether_rx_buf[45] = ((GUEST_IN_ADDR.s_addr&0xFF000000)>>24);
+	// FCS	
+	// The Lambda doesn't seem to actually check it, can we just leave it zeroes?
+	// Yes!
+	printf("ENET: ARP response generated!\n");
+	return(4+14+28+4); // Return this length (plus 4 byte header)
+      }
+    }
+    // What about the tunnel?
+    if(host_iface_state == 1){
+      uint8_t tunbuf[0x800];
+      uint32_t addrfam;
+      res = read(utun_fd,tunbuf,0x800);
+      if(res < 0){
+	if(errno != EAGAIN && errno != EWOULDBLOCK){
+	  perror("utun:read()");
+	}
+	return(0);
+      }
+      // We got something!
+      // printf("UTUN: Read got %ld bytes\n",res);
+      // This will most likely be IPv4
+      addrfam = ntohl(*((uint32_t *)&tunbuf));
+      if(addrfam == AF_INET){
+	// Construct packet
+	// Packet goes at ether_rx_buf+4 to account for Linux ethernet header
+	memset(ether_rx_buf, 0, 0x800); // Clobber
+	// Ethernet header
+	ether_rx_buf[4] = ETH_HW_ADDR.byte[0];   // Destination address
+	ether_rx_buf[5] = ETH_HW_ADDR.byte[1];
+	ether_rx_buf[6] = ETH_HW_ADDR.byte[2];
+	ether_rx_buf[7] = ETH_HW_ADDR.byte[3];
+	ether_rx_buf[8] = ETH_HW_ADDR.byte[4];
+	ether_rx_buf[9] = ETH_HW_ADDR.byte[5];
+	ether_rx_buf[10] = HOST_HW_ADDR.byte[0]; // Source Address
+	ether_rx_buf[11] = HOST_HW_ADDR.byte[1];
+	ether_rx_buf[12] = HOST_HW_ADDR.byte[2];
+	ether_rx_buf[13] = HOST_HW_ADDR.byte[3];
+	ether_rx_buf[14] = HOST_HW_ADDR.byte[4];
+	ether_rx_buf[15] = HOST_HW_ADDR.byte[5];
+	ether_rx_buf[16] = 0x08;                 // IPv4 (0x0800)
+	ether_rx_buf[17] = 0x00; 
+	// Target packet
+	memcpy(ether_rx_buf+18,tunbuf+4,res-4);
+	// Tell the host about it
+	// printf("UTUN: Forwarded\n");
+	return(4+14+(res-4)+4);
+      }else{
+	printf("UTUN: Got %ld bytes Not IPv4 (AF %d), disregarded\n",res,addrfam);
+      }
+    }
+#endif
+    // Get more packets from BPF
     res = read(ether_fd,ether_bpf_buf,0x800);
     if(res < 0){
       if(errno != EAGAIN && errno != EWOULDBLOCK){
