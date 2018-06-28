@@ -10,6 +10,14 @@ AM_INIT_AUTOMAKE
 # Checks for programs.
 AC_PROG_CC
 
+# Conditionalize UTUN
+AC_ARG_ENABLE([use_utun],
+	[AS_HELP_STRING([--enable-use-utun], [Use UTUN frame diverter with BPF @<:@default=no@:>@])])
+
+AS_IF([test "x$enable_use_utun" = "xyes"], [
+	CFLAGS="$CFLAGS -DUSE_UTUN"
+	])
+
 # Conditionalize 2x2 support
 AC_ARG_ENABLE([config_2x2],
 	[AS_HELP_STRING([--enable-config-2x2], [Use 2x2 Lambda configuration @<:@default=no@:>@])])
