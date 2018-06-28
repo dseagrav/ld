@@ -19,6 +19,9 @@
 
 void sdu_init();
 void sdu_clock_pulse();
+#ifdef HAVE_YAML_H
+int yaml_sdu_mapping_loop(yaml_parser_t *parser);
+#endif
 void boot_lambda(int cp,int step);
 void dump_lisp_start_state(int I);
 

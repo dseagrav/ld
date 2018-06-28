@@ -18,12 +18,18 @@
    along with LambdaDelta.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "config.h"
+
 #include <stdio.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <strings.h>
+
+#ifdef HAVE_YAML_H
+#include <yaml.h>
+#endif
 
 #include "ld.h"
 #include "nubus.h"
@@ -3041,3 +3047,78 @@ void dump_lisp_start_state(int I){
     }
   }
 }
+
+#ifdef HAVE_YAML_H
+int yaml_sdu_mapping_loop(yaml_parser_t *parser){
+  char key[128];
+  char value[128];
+  yaml_event_t event;
+  int mapping_done = 0;
+  key[0] = 0;
+  value[0] = 0;
+  while(mapping_done == 0){
+    if(!yaml_parser_parse(parser, &event)){
+      if(parser->context != NULL){
+	printf("YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
+      }else{
+	printf("YAML: Parser error %d: %s\n", parser->error,parser->problem);
+      }
+      return(-1);
+    }
+    switch(event.type){
+    case YAML_NO_EVENT:
+      printf("No event?\n");
+      break;
+    case YAML_STREAM_START_EVENT:
+    case YAML_DOCUMENT_START_EVENT:
+      // printf("STREAM START\n");
+      printf("Unexpected stream/document start\n");
+      break;
+    case YAML_STREAM_END_EVENT:
+    case YAML_DOCUMENT_END_EVENT:
+      // printf("[End Document]\n");
+      printf("Unexpected stream/document end\n");
+      break;
+    case YAML_SEQUENCE_START_EVENT:
+    case YAML_MAPPING_START_EVENT:
+      printf("Unexpected sequence/mapping start\n");
+      return(-1);
+      break;
+    case YAML_SEQUENCE_END_EVENT:
+      printf("Unexpected sequence end\n");
+      return(-1);
+      break;
+    case YAML_MAPPING_END_EVENT:
+      mapping_done = 1;
+      break;
+    case YAML_ALIAS_EVENT:
+      printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
+      return(-1);
+      break;
+    case YAML_SCALAR_EVENT:
+      if(key[0] == 0){
+	strncpy(key,(const char *)event.data.scalar.value,128);
+      }else{
+	strncpy(value,(const char *)event.data.scalar.value,128);
+	if(strcmp(key,"switch") == 0){
+	  int val = atoi(value);
+	  extern uint8_t sdu_rotary_switch;
+	  sdu_rotary_switch = val;
+	  printf("SDU switch setting %d\n",sdu_rotary_switch);	  
+	  goto value_done;
+	}
+	printf("sdu: Unknown key %s (value %s)\n",key,value);
+	return(-1);
+	// Done
+      value_done:
+	key[0] = 0;
+	break;
+      }
+      break;
+    }
+    yaml_event_delete(&event);
+  }
+  return(0);  
+}
+
+#endif

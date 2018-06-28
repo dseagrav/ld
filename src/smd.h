@@ -22,3 +22,7 @@ int smd_init();
 void smd_reset();
 uint8_t smd_read(uint8_t addr);
 void smd_write(uint8_t addr,uint8_t data);
+#ifdef HAVE_YAML_H
+int yaml_disk_mapping_loop(yaml_parser_t *parser);
+int yaml_disk_sequence_loop(yaml_parser_t *parser);
+#endif

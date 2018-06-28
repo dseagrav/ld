@@ -34,10 +34,16 @@
 #include <signal.h>
 #include <time.h>
 #include <errno.h>
+#include <pwd.h>
 
 // TCP socket
 #include <netinet/in.h>
 #include <netdb.h> 
+
+#ifdef HAVE_YAML_H
+// YAML
+#include <yaml.h>
+#endif
 
 // SDL
 #ifdef SDL1
@@ -143,6 +149,10 @@ SDL_Texture *SDLTexture;
 SDL_TimerID SDLTimer;
 uint32_t FrameBuffer[VIDEO_HEIGHT*VIDEO_WIDTH];
 #endif
+
+// Stringify macros
+#define STR_EXPAND(tok) #tok
+#define STR(tok) STR_EXPAND(tok)
 
 #ifdef BURR_BROWN
 // Debug state and interface
@@ -2471,6 +2481,50 @@ void debug_clockpulse(){
 }
 #endif
 
+// Map SDL key sval to Lambda keycode dval
+void map_key(int sval, int dval){
+  // Do it
+  map[sval] = dval;
+  // Assign modifier bits
+  switch(dval){
+  case 0003: // Mode Lock
+    modmap[sval] = KB_BB_MODELOCK; break;
+  case 0005: // Left Super
+    modmap[sval] = KB_BB_LSUPER; break;
+  case 0015: // Alt Lock
+    modmap[sval] = KB_BB_ALTLOCK; break;
+  case 0020: // Left Control
+    modmap[sval] = KB_BB_LCTL; break;
+  case 0024: // Left Shift
+    modmap[sval] = KB_BB_LSHIFT; break;
+  case 0025: // Right Shift
+    modmap[sval] = KB_BB_RSHIFT; break;
+  case 0026: // Right Control
+    modmap[sval] = KB_BB_RCTL; break;
+  case 0044: // Left Greek (there is no Right Greek)
+    modmap[sval] = KB_BB_GREEK; break;
+  case 0045: // Left Meta
+    modmap[sval] = KB_BB_LMETA; break;
+  case 0065: // Right Super
+    modmap[sval] = KB_BB_RSUPER; break;
+  case 0104: // Left Top
+    modmap[sval] = KB_BB_LTOP; break;
+  case 0115: // Repeat
+    modmap[sval] = KB_BB_REPEAT; break;
+  case 0145: // Left Hyper
+    modmap[sval] = KB_BB_LHYPER; break;
+  case 0155: // Right Top
+    modmap[sval] = KB_BB_RTOP; break;
+  case 0165: // Right Meta
+    modmap[sval] = KB_BB_RMETA; break;
+  case 0175: // Right Hyper
+    modmap[sval] = KB_BB_RHYPER; break;
+  default:
+    modmap[sval] = 0; // Not a modifier
+    break;
+  }	
+}
+
 // Handle writes to keyboard control reg #5 to click/not (cf vcmem.c)
 void audio_control(int onoff) {
   static int state = 0;
@@ -2689,45 +2743,7 @@ void parse_config_line(char *line){
       tok = strtok(NULL," \t\r\n");
       if(tok != NULL){
 	int dval = strtol(tok,NULL,8);
-	map[sval] = dval;
-	// Assign modifier bits
-	switch(dval){
-	case 0003: // Mode Lock
-	  modmap[sval] = KB_BB_MODELOCK; break;
-	case 0005: // Left Super
-	  modmap[sval] = KB_BB_LSUPER; break;
-	case 0015: // Alt Lock
-	  modmap[sval] = KB_BB_ALTLOCK; break;
-	case 0020: // Left Control
-	  modmap[sval] = KB_BB_LCTL; break;
-	case 0024: // Left Shift
-	  modmap[sval] = KB_BB_LSHIFT; break;
-	case 0025: // Right Shift
-	  modmap[sval] = KB_BB_RSHIFT; break;
-	case 0026: // Right Control
-	  modmap[sval] = KB_BB_RCTL; break;
-	case 0044: // Left Greek (there is no Right Greek)
-	  modmap[sval] = KB_BB_GREEK; break;
-	case 0045: // Left Meta
-	  modmap[sval] = KB_BB_LMETA; break;
-	case 0065: // Right Super
-	  modmap[sval] = KB_BB_RSUPER; break;
-	case 0104: // Left Top
-	  modmap[sval] = KB_BB_LTOP; break;
-	case 0115: // Repeat
-	  modmap[sval] = KB_BB_REPEAT; break;
-	case 0145: // Left Hyper
-	  modmap[sval] = KB_BB_LHYPER; break;
-	case 0155: // Right Top
-	  modmap[sval] = KB_BB_RTOP; break;
-	case 0165: // Right Meta
-	  modmap[sval] = KB_BB_RMETA; break;
-	case 0175: // Right Hyper
-	  modmap[sval] = KB_BB_RHYPER; break;
-	default:
-	  modmap[sval] = 0; // Not a modifier
-	  break;
-	}
+	map_key(sval,dval);
 	printf("Mapped SDL keycode %d to Lambda keycode 0%o\n",sval,dval);
       }else{
 	printf("key_map: Missing octal Lambda key code.\n");
@@ -2738,6 +2754,622 @@ void parse_config_line(char *line){
   }
 
 }
+
+#ifdef HAVE_YAML_H
+/* libYAML config file support */
+int yaml_keyboard_sequence_loop(yaml_parser_t *parser){
+  char key[128];
+  char value[128];
+  yaml_event_t event;
+  int sequence_done = 0;
+  int sval = 0, dval = 0;  
+  key[0] = 0;
+  value[0] = 0;
+  while(sequence_done == 0){
+    if(!yaml_parser_parse(parser, &event)){
+      if(parser->context != NULL){
+	printf("YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
+      }else{
+	printf("YAML: Parser error %d: %s\n", parser->error,parser->problem);
+      }
+      return(-1);
+    }
+    switch(event.type){
+    case YAML_NO_EVENT:
+      printf("No event?\n");
+      break;
+    case YAML_STREAM_START_EVENT:
+    case YAML_DOCUMENT_START_EVENT:
+      // printf("STREAM START\n");
+      printf("Unexpected stream/document start\n");
+      break;
+    case YAML_STREAM_END_EVENT:
+    case YAML_DOCUMENT_END_EVENT:
+      // printf("[End Document]\n");
+      printf("Unexpected stream/document end\n");
+      break;
+    case YAML_SEQUENCE_START_EVENT:
+      printf("Unexpected sequence start\n");
+      return(-1);
+      break;      
+    case YAML_MAPPING_START_EVENT:
+      // Map entry start. Reinitialize.
+      sval = 0;
+      dval = 0;
+      break;
+    case YAML_SEQUENCE_END_EVENT:
+      // We are done
+      sequence_done = 1;
+      break;
+    case YAML_MAPPING_END_EVENT:
+      // Map entry end. Do it.
+      map_key(sval,dval);
+      printf("keyboard: Mapped SDL keycode %d to Lambda keycode 0%o\n",sval,dval);      
+      break;
+    case YAML_ALIAS_EVENT:
+      printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
+      return(-1);
+      break;
+    case YAML_SCALAR_EVENT:
+      if(key[0] == 0){
+	strncpy(key,(const char *)event.data.scalar.value,128);
+      }else{
+	strncpy(value,(const char *)event.data.scalar.value,128);
+	// printf("keyboard: key %s = value %s\n",key,value);
+        if(strcmp(key,"sdl") == 0){
+	  sval = atoi(value);
+	  goto value_done;
+	}
+	if(strcmp(key,"lambda") == 0){
+	  dval = strtol(value,NULL,8);
+	  goto value_done;
+	}
+        printf("keyboard: Unknown key %s (value %s)\n",key,value);
+	return(-1);
+	// Done
+      value_done:
+	key[0] = 0;
+	break;
+      }
+      break;
+    }
+    yaml_event_delete(&event);
+  }
+  return(0);
+}
+
+int yaml_keyboard_mapping_loop(yaml_parser_t *parser){
+  char key[128];
+  char value[128];
+  yaml_event_t event;
+  int rv = 0;
+  int mapping_done = 0;
+  key[0] = 0;
+  value[0] = 0;
+  while(mapping_done == 0){
+    if(!yaml_parser_parse(parser, &event)){
+      if(parser->context != NULL){
+	printf("YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
+      }else{
+	printf("YAML: Parser error %d: %s\n", parser->error,parser->problem);
+      }
+      return(-1);
+    }
+    switch(event.type){
+    case YAML_NO_EVENT:
+      printf("No event?\n");
+      break;
+    case YAML_STREAM_START_EVENT:
+    case YAML_DOCUMENT_START_EVENT:
+      // printf("STREAM START\n");
+      printf("Unexpected stream/document start\n");      
+      break;
+    case YAML_STREAM_END_EVENT:      
+    case YAML_DOCUMENT_END_EVENT:
+      // printf("[End Document]\n");
+      printf("Unexpected stream/document end\n");      
+      break;
+    case YAML_SEQUENCE_START_EVENT:
+      if(strcmp(key,"mapping") == 0){
+	rv = yaml_keyboard_sequence_loop(parser);
+	goto seq_done;
+      }
+      printf("Unexpected sequence key: %s\n",key);
+      return(-1);
+    seq_done:
+      if(rv < 0){ return(rv); }
+      // Value done
+      key[0] = 0;
+      break;
+    case YAML_MAPPING_START_EVENT:
+      printf("Unexpected mapping start\n");
+      return(-1);
+      break;
+    case YAML_SEQUENCE_END_EVENT:
+      printf("Unexpected sequence end\n");
+      return(-1);
+      break;      
+    case YAML_MAPPING_END_EVENT:
+      mapping_done = 1;
+      break;
+    case YAML_ALIAS_EVENT:
+      printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
+      return(-1);
+      break;
+    case YAML_SCALAR_EVENT:
+      if(key[0] == 0){
+	strncpy(key,(const char *)event.data.scalar.value,128);
+      }else{
+	strncpy(value,(const char *)event.data.scalar.value,128);
+	// printf("keyboard: key %s = value %s\n",key,value);
+	// Handle it
+	if(strcmp(key,"quit") == 0){
+	  if((strcasecmp(value,"on") == 0) || (strcasecmp(value,"yes") == 0) || (strcasecmp(value,"true") == 0)){
+	    quit_on_sdl_quit = 1;
+	  }else{
+	    if((strcasecmp(value,"off") == 0) || (strcasecmp(value,"no") == 0) || (strcasecmp(value,"false") == 0)){
+	      quit_on_sdl_quit = 0;
+	    }else{
+	      printf("keyboard: quit: unrecognized value '%s' (expecting on/true/yes or off/false/no)\n", value);
+	      return(-1);
+	    }
+	  }
+	  goto value_done;
+	}
+	if(strcmp(key,"map") == 0){
+	  if(value[0] != 0){	    
+	    int sval = atoi(value);
+	    char *tok = strtok(value," \r\n");
+	    if(tok != NULL){
+	      int dval = strtol(tok,NULL,8);
+	      map_key(sval,dval);
+	      printf("keyboard: Mapped SDL keycode %d to Lambda keycode 0%o\n",sval,dval);
+	    }else{
+	      printf("keyboard: map: Missing octal Lambda key code.\n");
+	    }
+	  }else{
+	    printf("keyboard: map: Missing decimal SDL keycode value\n");
+	  }
+	  goto value_done;
+	}
+	printf("keyboard: Unknown key %s (value %s)\n",key,value);
+	return(-1);	
+	// Done
+      value_done:
+	key[0] = 0;
+	break;
+      }
+      break;
+    }
+    yaml_event_delete(&event);    
+  }
+  return(0);
+}
+
+int yaml_video_mapping_loop(yaml_parser_t *parser){
+  char key[128];
+  char value[128];
+  yaml_event_t event;
+  int mapping_done = 0;
+  key[0] = 0;
+  value[0] = 0;
+  while(mapping_done == 0){
+    if(!yaml_parser_parse(parser, &event)){
+      if(parser->context != NULL){
+	printf("YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
+      }else{
+	printf("YAML: Parser error %d: %s\n", parser->error,parser->problem);
+      }
+      return(-1);
+    }
+    switch(event.type){
+    case YAML_NO_EVENT:
+      printf("No event?\n");
+      break;
+    case YAML_STREAM_START_EVENT:
+    case YAML_DOCUMENT_START_EVENT:
+      // printf("STREAM START\n");
+     printf("Unexpected stream/document start\n");
+     break;
+    case YAML_STREAM_END_EVENT:
+    case YAML_DOCUMENT_END_EVENT:
+      // printf("[End Document]\n");
+      printf("Unexpected stream/document end\n");
+      break;
+    case YAML_SEQUENCE_START_EVENT:
+    case YAML_MAPPING_START_EVENT:
+      printf("Unexpected sequence/mapping start\n");
+      return(-1);
+      break;
+    case YAML_SEQUENCE_END_EVENT:
+      printf("Unexpected sequence end\n");
+      return(-1);
+      break;
+    case YAML_MAPPING_END_EVENT:
+      mapping_done = 1;
+      break;
+    case YAML_ALIAS_EVENT:
+      printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
+      return(-1);
+      break;
+    case YAML_SCALAR_EVENT:
+      if(key[0] == 0){
+	strncpy(key,(const char *)event.data.scalar.value,128);
+      }else{
+	strncpy(value,(const char *)event.data.scalar.value,128);
+	if(strcmp(key,"pixel-on") == 0){
+	  uint32_t sval = strtol(value,NULL,16);
+	  pixel_on = sval;
+	  printf("pixel_on set to 0x%X\n", pixel_on);	  
+	  goto value_done;
+	}
+	if(strcmp(key,"pixel-off") == 0){
+	  uint32_t sval = strtol(value,NULL,16);
+	  pixel_off = sval;
+	  printf("pixel_off set to 0x%X\n", pixel_off);	  
+	  goto value_done;
+	}
+	printf("video: Unknown key %s (value %s)\n",key,value);
+	return(-1);
+	// Done
+      value_done:
+	key[0] = 0;
+	break;
+      }
+      break;
+    }
+    yaml_event_delete(&event);
+  }
+  return(0); 
+}
+
+int yaml_mouse_sequence_loop(yaml_parser_t *parser){
+  char key[128];
+  char value[128];
+  yaml_event_t event;
+  int sequence_done = 0;
+  int xloc=0,yloc=0,wakeloc=0,lambda=0;
+  
+  key[0] = 0;
+  value[0] = 0;
+  while(sequence_done == 0){
+    if(!yaml_parser_parse(parser, &event)){
+      if(parser->context != NULL){
+	printf("YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
+      }else{
+	printf("YAML: Parser error %d: %s\n", parser->error,parser->problem);
+      }
+      return(-1);
+    }
+    switch(event.type){
+    case YAML_NO_EVENT:
+      printf("No event?\n");
+      break;
+    case YAML_STREAM_START_EVENT:
+    case YAML_DOCUMENT_START_EVENT:
+      // printf("STREAM START\n");
+      printf("Unexpected stream/document start\n");
+      break;
+    case YAML_STREAM_END_EVENT:
+    case YAML_DOCUMENT_END_EVENT:
+      // printf("[End Document]\n");
+      printf("Unexpected stream/document end\n");
+      break;
+    case YAML_SEQUENCE_START_EVENT:
+      printf("Unexpected sequence start\n");
+      return(-1);
+      break;
+    case YAML_MAPPING_START_EVENT:
+      // Map entry start. Reinitialize.
+      xloc = yloc = wakeloc = lambda = 0;
+      break;
+    case YAML_SEQUENCE_END_EVENT:
+      // We are done
+      sequence_done = 1;
+      break;
+    case YAML_MAPPING_END_EVENT:
+      // Map entry end. Do it.
+      if(lambda != 0){ lambda = 1; } 
+      mouse_x_loc[lambda] = xloc;
+      mouse_y_loc[lambda] = yloc;
+      mouse_wake_loc[lambda] = wakeloc;
+      printf("mouse: CP %d A-memory locations are %o, %o, and %o\n",
+	     lambda,mouse_x_loc[lambda],mouse_y_loc[lambda],mouse_wake_loc[lambda]);
+      break;
+    case YAML_ALIAS_EVENT:
+      printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
+      return(-1);
+      break;
+    case YAML_SCALAR_EVENT:
+      if(key[0] == 0){
+	strncpy(key,(const char *)event.data.scalar.value,128);
+      }else{
+	strncpy(value,(const char *)event.data.scalar.value,128);
+        if(strcmp(key,"lambda") == 0){
+	  lambda = atoi(value);
+	  goto value_done;
+	}
+	if(strcmp(key,"xloc") == 0){
+	  xloc = strtol(value,NULL,8);
+	  goto value_done;
+	}
+	if(strcmp(key,"yloc") == 0){
+	  yloc = strtol(value,NULL,8);
+	  goto value_done;
+	}
+	if(strcmp(key,"wake") == 0){
+	  wakeloc = strtol(value,NULL,8);
+	  goto value_done;
+	}	
+        printf("mouse: Unknown key %s (value %s)\n",key,value);
+	return(-1);
+	// Done
+      value_done:
+	key[0] = 0;
+	break;
+      }
+      break;
+    }
+    yaml_event_delete(&event);
+  }
+  return(0);  
+}
+
+int yaml_mouse_mapping_loop(yaml_parser_t *parser){
+  char key[128];
+  char value[128];
+  yaml_event_t event;
+  int rv = 0;
+  int mapping_done = 0;
+  key[0] = 0;
+  value[0] = 0;
+  while(mapping_done == 0){
+    if(!yaml_parser_parse(parser, &event)){
+      if(parser->context != NULL){
+	printf("YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
+      }else{
+	printf("YAML: Parser error %d: %s\n", parser->error,parser->problem);
+      }
+      return(-1);
+    }
+    switch(event.type){
+    case YAML_NO_EVENT:
+      printf("No event?\n");
+      break;
+    case YAML_STREAM_START_EVENT:
+    case YAML_DOCUMENT_START_EVENT:
+      // printf("STREAM START\n");
+      printf("Unexpected stream/document start\n");
+      break;
+    case YAML_STREAM_END_EVENT:
+    case YAML_DOCUMENT_END_EVENT:
+      // printf("[End Document]\n");
+      printf("Unexpected stream/document end\n");
+      break;
+    case YAML_SEQUENCE_START_EVENT:
+      if(strcmp(key,"locs") == 0){
+	rv = yaml_mouse_sequence_loop(parser);
+	goto seq_done;
+      }
+      printf("Unexpected sequence key: %s\n",key);
+      return(-1);
+    seq_done:
+      if(rv < 0){ return(rv); }
+      key[0] = 0;
+      break;
+    case YAML_MAPPING_START_EVENT:
+      printf("Unexpected mapping start\n");
+      return(-1);
+      break;
+    case YAML_SEQUENCE_END_EVENT:
+      printf("Unexpected sequence end\n");
+      return(-1);
+      break;
+    case YAML_MAPPING_END_EVENT:
+      mapping_done = 1;
+      break;
+    case YAML_ALIAS_EVENT:
+      printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
+      return(-1);
+      break;
+    case YAML_SCALAR_EVENT:
+      if(key[0] == 0){
+	strncpy(key,(const char *)event.data.scalar.value,128);
+      }else{
+	strncpy(value,(const char *)event.data.scalar.value,128);
+	if(strcmp(key,"mode") == 0){
+	  int val = atoi(value);
+	  switch(val){
+	  case 1: // Shared
+	    mouse_op_mode = 1;
+	    printf("Using Shared mode for mouse interface\r\n");
+	    break;
+	  case 0: // Direct
+	  default: // Direct
+	    mouse_op_mode = 0;
+	    printf("Using Direct mode for mouse interface\r\n");
+	    break;
+	  }
+	  goto value_done;
+	}
+        printf("mouse: Unknown key %s (value %s)\n",key,value);
+	return(-1);
+	// Done
+      value_done:
+	key[0] = 0;
+	break;
+      }
+      break;
+    }
+    yaml_event_delete(&event);
+  }
+  return(0);  
+}
+
+int yaml_event_loop(yaml_parser_t *parser){
+  char key[128];  
+  yaml_event_t event;
+  int config_done = 0;
+  int rv = 0;
+  // Initialize
+  strncpy(key,"root",128);
+  // Parse
+  while(config_done == 0){
+    if(!yaml_parser_parse(parser, &event)){
+      if(parser->context != NULL){
+	printf("YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
+      }else{
+	printf("YAML: Parser error %d: %s\n", parser->error,parser->problem);
+      }
+      return(-1);
+    }
+    switch(event.type){
+    case YAML_NO_EVENT:
+      printf("No event?\n");
+      break;
+    case YAML_STREAM_START_EVENT:
+      // printf("STREAM START\n");
+      break;
+    case YAML_STREAM_END_EVENT:
+      // printf("STREAM END\n");
+      config_done = 1;
+      break;
+    case YAML_DOCUMENT_START_EVENT:
+      // printf("[Start Document]\n");
+      break;
+    case YAML_DOCUMENT_END_EVENT:
+      // printf("[End Document]\n");
+      break;
+    case YAML_SEQUENCE_START_EVENT:
+      // printf("[Start Sequence]\n");
+      if(strcmp(key,"keyboard") == 0){
+	rv = yaml_keyboard_sequence_loop(parser);
+	goto seq_done;
+      }
+      if(strcmp(key,"mouse") == 0){
+	rv = yaml_mouse_sequence_loop(parser);
+	goto seq_done;
+      }      
+      if(strcmp(key,"disk") == 0){
+	rv = yaml_disk_sequence_loop(parser);
+	goto seq_done;
+      }      
+      printf("Unexpected sequence key: %s\n",key);
+      return(-1);
+    seq_done:
+      if(rv < 0){ return(rv); }
+      strncpy(key,"root",128);      
+      break;
+    case YAML_SEQUENCE_END_EVENT:
+      // printf("[End Sequence]\n");
+      printf("Unexpected end of %s sequence\n",key);
+      return(-1);
+      break;
+    case YAML_MAPPING_START_EVENT:
+      // printf("[Start Mapping]\n");
+      if(strcmp(key,"root") == 0){ break; } // Start of root mapping, ignore
+      if(strcmp(key,"keyboard") == 0){
+	rv = yaml_keyboard_mapping_loop(parser);
+	goto map_done;
+      }
+      if(strcmp(key,"sdu") == 0){
+	rv = yaml_sdu_mapping_loop(parser);
+	goto map_done;
+      }
+      if(strcmp(key,"video") == 0){
+	rv = yaml_video_mapping_loop(parser);
+	goto map_done;
+      }
+      if(strcmp(key,"mouse") == 0){
+	rv = yaml_mouse_mapping_loop(parser);
+	goto map_done;
+      }
+      if(strcmp(key,"network") == 0){
+	rv = yaml_network_mapping_loop(parser);
+	goto map_done;
+      }
+      if(strcmp(key,"disk") == 0){
+	rv = yaml_disk_mapping_loop(parser);
+	goto map_done;
+      }
+      printf("Unexpected mapping key: %s\n",key);
+      return(-1);
+    map_done:
+      if(rv < 0){ return(rv); }      
+      strncpy(key,"root",128);      
+      break;
+    case YAML_MAPPING_END_EVENT:
+      // printf("[End Mapping]\n");
+      if(strcmp(key,"root") == 0){ break; } // End of root mapping, ignore
+      printf("Unexpected end of %s mapping\n",key);
+      return(-1);
+      break;
+    case YAML_ALIAS_EVENT:
+      printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
+      return(-1);
+      break;
+    case YAML_SCALAR_EVENT:
+      if(strcmp(key,"root") != 0){
+	printf("Unexpected value at root: %s\n", event.data.scalar.value);
+	return(-1);
+      }
+      strncpy(key,(const char *)event.data.scalar.value,128);      
+      break;
+    }
+    yaml_event_delete(&event);
+  }
+  return(0);
+}
+
+int handle_yaml_file(FILE *input){
+  yaml_parser_t parser;
+  int rv = 0;
+  
+  if(!yaml_parser_initialize(&parser)){
+    printf("handle_yaml_file(): Unable to initialize YAML parser\n");
+    return(-1);
+  }      
+  yaml_parser_set_input_file(&parser, input);
+  rv = yaml_event_loop(&parser);
+  // Done
+  yaml_parser_delete(&parser);
+  return(rv);
+}
+
+int handle_yaml_buffer(char *buf){
+  yaml_parser_t parser;
+  int rv = 0;
+  if(!yaml_parser_initialize(&parser)){
+    printf("handle_yaml_buffer(): Unable to initialize YAML parser\n");
+    return(-1);
+  }
+  yaml_parser_set_input_string(&parser,(unsigned char *)buf,strlen(buf));
+  rv = yaml_event_loop(&parser);
+  // Done
+  yaml_parser_delete(&parser);
+  return(rv);
+}
+
+void try_yaml_file(char *fn){
+  FILE *config = fopen(fn,"r");
+  if(config != NULL){
+    // Do it
+    int rv = handle_yaml_file(config);    
+    fclose(config);
+    if(rv < 0){ exit(rv); }
+  }
+}
+
+void try_yaml_buf(char *buf){
+  if(buf != NULL){
+    int rv = handle_yaml_buffer(buf);
+    if(rv < 0){
+      exit(rv);
+    }
+  }  
+}
+
+#endif
 
 // One nubus clock cycle
 // Can be driven by the SDU 8088 or not.
@@ -2781,12 +3413,15 @@ void nubus_cycle(int sdu){
 
 // Main
 int main(int argc, char *argv[]){
+#ifndef HAVE_YAML_H
   FILE *config;
+#endif
+  
+  // Initialize
   keyboard_io_ring_top[0] = keyboard_io_ring_top[1] = 0;
   keyboard_io_ring_bottom[0] = keyboard_io_ring_bottom[1] = 0;
   mouse_io_ring_top[0] = mouse_io_ring_top[1] = 0;
   mouse_io_ring_bottom[0] = mouse_io_ring_bottom[1] = 0;
-
   printf("LambdaDelta\n");  
 
   // Read default keymap
@@ -2799,6 +3434,7 @@ int main(int argc, char *argv[]){
 #endif
 
   // Obtain configuration
+#ifndef HAVE_YAML_H
   config = fopen("ld.conf","r");
   if(!config){
     printf("Can't open ld.conf\n");
@@ -2812,24 +3448,119 @@ int main(int argc, char *argv[]){
       }
     }
   }
+#endif
+  
+#ifdef HAVE_YAML_H
+  // Obtain site-wide YAML
+#ifdef SYSCONFDIR
+  {
+    char sysconf[128];
+    sysconf[0] = 0;
+    strncat(sysconf,STR(SYSCONFDIR),128);
+    strncat(sysconf,"/lam.yml",128);
+    try_yaml_file(sysconf);
+  }
+#endif
+  // Try user's home directory
+  {
+    // Given by environment?
+    char *homedir = getenv("HOME");
+    if(homedir != NULL){
+      // Use given home directory
+      char usrconf[128];
+      usrconf[0] = 0;
+      strncat(usrconf,homedir,127);
+      strncat(usrconf,"/lam.yml",127);
+      try_yaml_file(usrconf);            
+    }else{
+      // Otherwise determine from UID
+      uid_t user_id = getuid();
+      struct passwd *pw = NULL;
+      // Are we root?
+      if(user_id == 0){
+	// We're root. Were we run by sudo?
+	char *sudo_uid = getenv("SUDO_UID");
+	if(sudo_uid != NULL){
+	  // Yes. Get the real uid instead.
+	  user_id = atoi(sudo_uid);
+	}
+      }
+      // printf("UID: %d\n",user_id);
+      pw = getpwuid(user_id);
+      if(pw != NULL){
+	char usrconf[128];
+	usrconf[0] = 0;
+	strncat(usrconf,pw->pw_dir,127);
+	strncat(usrconf,"/lam.yml",127);
+	try_yaml_file(usrconf);      
+      }	     
+    }
+  }
+  // Try current working directory
+  try_yaml_file("lam.yml");
+#endif
   
   // Handle command-line options
   if(argc > 1){
     int x = 1;
     while(x < argc){
+      
 #ifdef BURR_BROWN
       if(strcmp("-d",argv[x]) == 0){
 	debug_target_mode = 10;
 	printf("DEBUG TARGET MODE 10\n");
       }
 #endif
+
+#ifdef HAVE_YAML_H
+      // Command-line provided file name
+      if(strcmp("-c",argv[x]) == 0){
+	if(x+1 < argc){
+	  try_yaml_file(argv[x+1]);
+	  x++;
+	}else{
+	  printf("lam: Required parameter missing\n");
+	  exit(-1);
+	}
+      }
+      // Command-lide provided yaml option
+      if(strncmp("--",argv[x],2)==0){
+	if(x+1 < argc){
+	  char *sect = strtok(argv[x],"-");
+	  // printf("YAML OPT: %s\n",argv[x]);
+	  if(sect != NULL){
+	    char *key = strtok(NULL,"\n");
+	    if(key != NULL){
+	      char yamlbuf[256];
+	      yamlbuf[0] = 0;
+	      sprintf(yamlbuf,"%s:\n  %s: %s\n",sect,key,argv[x+1]);
+	      // printf("GEN YAML:\n%s",yamlbuf);
+	      try_yaml_buf(yamlbuf);
+	    }else{
+	      printf("lam: Can't parse key\n");
+	      exit(-1);	      
+	    }
+	  }else{
+	    printf("lam: Can't parse parameter\n");
+	    exit(-1);	    
+	  }
+	}else{
+	  printf("lam: Parameter value missing\n");
+	  exit(-1);	  
+	}
+      }
+#endif      
       if(strcmp("-?",argv[x]) == 0){
-        printf("\nUsage: ld [OPTIONS]\n");
+        printf("\nUsage: lam [OPTIONS]\n");
         printf("Valid options:\n");
-#ifdef BURR_BROWN
-	printf("  -d  Enable debug target mode\n");
+#ifdef HAVE_YAML_H
+	printf("  -c FILE             Read YAML configuration FILE\n");
+	printf("  --yaml-key VALUE    Use provided value for YAML key (see documentation)\n");
 #endif
-	printf("  -?  Print this text\n");
+#ifdef BURR_BROWN
+	printf("  -d                  Enable debug target mode\n");
+#endif
+	printf("  -?                  Print this text\n");
 	exit(0);
       }
       x++;

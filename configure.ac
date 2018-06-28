@@ -4,9 +4,8 @@
 AC_PREREQ([2.69])
 AC_INIT([ld], [0.98.2], [dseagrav@lunar-tokyo.net])
 AC_CONFIG_SRCDIR([src/kernel.c])
-AM_INIT_AUTOMAKE
-AC_CONFIG_SRCDIR([src/syms.h])
 AC_CONFIG_HEADERS([src/config.h])
+AM_INIT_AUTOMAKE
 
 # Checks for programs.
 AC_PROG_CC
@@ -64,7 +63,7 @@ AS_IF([test "$GFX_SDL1" = TRUE],
 
 # Checks for header files.
 AC_HEADER_STDC
-AC_CHECK_HEADERS([fcntl.h netdb.h netinet/in.h stddef.h stdint.h stdlib.h string.h strings.h sys/ioctl.h sys/socket.h unistd.h])
+AC_CHECK_HEADERS([fcntl.h netdb.h netinet/in.h stddef.h stdint.h stdlib.h string.h strings.h sys/ioctl.h sys/socket.h sys/time.h unistd.h])
 AC_CHECK_HEADERS([linux/if.h], [], [],
 [[#ifdef HAVE_SYS_SOCKET_H
 #include <sys/socket.h>
@@ -76,6 +75,9 @@ AC_CHECK_HEADERS([linux/if_tun.h], [], [],
 #endif
 ]])
 AC_CHECK_HEADERS([net/bpf.h])
+
+# Do we have libyaml?
+AC_CHECK_HEADERS([yaml.h], [LIBS="$LIBS -lyaml"])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_CHECK_HEADER_STDBOOL
@@ -93,5 +95,10 @@ AC_TYPE_UINT8_T
 AC_FUNC_MALLOC
 AC_CHECK_FUNCS([atexit bzero gethostbyname memset socket strcasecmp strdup strtol])
 
-AC_OUTPUT(Makefile src/Makefile)
+# Path propagation
+CFLAGS="$CFLAGS -DSYSCONFDIR=${sysconfdir}"
 
+# Done
+AC_CONFIG_FILES([Makefile
+                 src/Makefile])
+AC_OUTPUT

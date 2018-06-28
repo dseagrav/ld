@@ -24,3 +24,6 @@ void enet_clock_pulse();
 void enet_reset();
 uint8_t enet_read(uint16_t addr);
 void enet_write(uint16_t addr,uint8_t data);
+#ifdef HAVE_YAML_H
+int yaml_network_mapping_loop(yaml_parser_t *parser);
+#endif
