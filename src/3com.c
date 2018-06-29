@@ -558,38 +558,38 @@ uint32_t ether_rx_pkt(){
 	if(errno != EAGAIN && errno != EWOULDBLOCK){
 	  perror("utun:read()");
 	}
-	return(0);
-      }
-      // We got something!
-      // printf("UTUN: Read got %ld bytes\n",res);
-      // This will most likely be IPv4
-      addrfam = ntohl(*((uint32_t *)&tunbuf));
-      if(addrfam == AF_INET){
-	// Construct packet
-	// Packet goes at ether_rx_buf+4 to account for Linux ethernet header
-	memset(ether_rx_buf, 0, 0x800); // Clobber
-	// Ethernet header
-	ether_rx_buf[4] = ETH_HW_ADDR.byte[0];   // Destination address
-	ether_rx_buf[5] = ETH_HW_ADDR.byte[1];
-	ether_rx_buf[6] = ETH_HW_ADDR.byte[2];
-	ether_rx_buf[7] = ETH_HW_ADDR.byte[3];
-	ether_rx_buf[8] = ETH_HW_ADDR.byte[4];
-	ether_rx_buf[9] = ETH_HW_ADDR.byte[5];
-	ether_rx_buf[10] = HOST_HW_ADDR.byte[0]; // Source Address
-	ether_rx_buf[11] = HOST_HW_ADDR.byte[1];
-	ether_rx_buf[12] = HOST_HW_ADDR.byte[2];
-	ether_rx_buf[13] = HOST_HW_ADDR.byte[3];
-	ether_rx_buf[14] = HOST_HW_ADDR.byte[4];
-	ether_rx_buf[15] = HOST_HW_ADDR.byte[5];
-	ether_rx_buf[16] = 0x08;                 // IPv4 (0x0800)
-	ether_rx_buf[17] = 0x00; 
-	// Target packet
-	memcpy(ether_rx_buf+18,tunbuf+4,res-4);
-	// Tell the host about it
-	// printf("UTUN: Forwarded\n");
-	return(4+14+(res-4)+4);
       }else{
-	printf("UTUN: Got %ld bytes Not IPv4 (AF %d), disregarded\n",res,addrfam);
+	// We got something!
+	// printf("UTUN: Read got %ld bytes\n",res);
+	// This will most likely be IPv4
+	addrfam = ntohl(*((uint32_t *)&tunbuf));
+	if(addrfam == AF_INET){
+	  // Construct packet
+	  // Packet goes at ether_rx_buf+4 to account for Linux ethernet header
+	  memset(ether_rx_buf, 0, 0x800); // Clobber
+	  // Ethernet header
+	  ether_rx_buf[4] = ETH_HW_ADDR.byte[0];   // Destination address
+	  ether_rx_buf[5] = ETH_HW_ADDR.byte[1];
+	  ether_rx_buf[6] = ETH_HW_ADDR.byte[2];
+	  ether_rx_buf[7] = ETH_HW_ADDR.byte[3];
+	  ether_rx_buf[8] = ETH_HW_ADDR.byte[4];
+	  ether_rx_buf[9] = ETH_HW_ADDR.byte[5];
+	  ether_rx_buf[10] = HOST_HW_ADDR.byte[0]; // Source Address
+	  ether_rx_buf[11] = HOST_HW_ADDR.byte[1];
+	  ether_rx_buf[12] = HOST_HW_ADDR.byte[2];
+	  ether_rx_buf[13] = HOST_HW_ADDR.byte[3];
+	  ether_rx_buf[14] = HOST_HW_ADDR.byte[4];
+	  ether_rx_buf[15] = HOST_HW_ADDR.byte[5];
+	  ether_rx_buf[16] = 0x08;                 // IPv4 (0x0800)
+	  ether_rx_buf[17] = 0x00; 
+	  // Target packet
+	  memcpy(ether_rx_buf+18,tunbuf+4,res-4);
+	  // Tell the host about it
+	  // printf("UTUN: Forwarded\n");
+	  return(4+14+(res-4)+4);
+	}else{
+	  printf("UTUN: Got %ld bytes Not IPv4 (AF %d), disregarded\n",res,addrfam);
+	}
       }
     }
 #endif
