@@ -2768,6 +2768,87 @@ void parse_config_line(char *line){
 
 #ifdef HAVE_YAML_H
 /* libYAML config file support */
+int yaml_lam_mapping_loop(yaml_parser_t *parser){
+  char key[128];
+  char value[128];
+  yaml_event_t event;
+  // int rv = 0;
+  int mapping_done = 0;
+  key[0] = 0;
+  value[0] = 0;
+  while(mapping_done == 0){
+    if(!yaml_parser_parse(parser, &event)){
+      if(parser->context != NULL){
+	printf("YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
+      }else{
+	printf("YAML: Parser error %d: %s\n", parser->error,parser->problem);
+      }
+      return(-1);
+    }
+    switch(event.type){
+    case YAML_NO_EVENT:
+      printf("No event?\n");
+      break;
+    case YAML_STREAM_START_EVENT:
+    case YAML_DOCUMENT_START_EVENT:
+      // printf("STREAM START\n");
+      printf("Unexpected stream/document start\n");      
+      break;
+    case YAML_STREAM_END_EVENT:      
+    case YAML_DOCUMENT_END_EVENT:
+      // printf("[End Document]\n");
+      printf("Unexpected stream/document end\n");      
+      break;
+    case YAML_SEQUENCE_START_EVENT:
+      printf("Unexpected sequence key: %s\n",key);
+      return(-1);
+      /*    seq_done:
+      if(rv < 0){ return(rv); }
+      // Value done
+      key[0] = 0; */
+      break;
+    case YAML_MAPPING_START_EVENT:
+      printf("Unexpected mapping start\n");
+      return(-1);
+      break;
+    case YAML_SEQUENCE_END_EVENT:
+      printf("Unexpected sequence end\n");
+      return(-1);
+      break;      
+    case YAML_MAPPING_END_EVENT:
+      mapping_done = 1;
+      break;
+    case YAML_ALIAS_EVENT:
+      printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
+      return(-1);
+      break;
+    case YAML_SCALAR_EVENT:
+      if(key[0] == 0){
+	strncpy(key,(const char *)event.data.scalar.value,128);
+      }else{
+	strncpy(value,(const char *)event.data.scalar.value,128);
+	// Handle it
+	if(strcmp(key,"wd") == 0){
+	  if(chdir(value) != 0){
+	    perror("chdir");
+	    return(-1);
+	  }
+	  goto value_done;
+	}
+	printf("lam: Unknown key %s (value %s)\n",key,value);
+	return(-1);	
+	// Done
+      value_done:
+	key[0] = 0;
+	break;
+      }
+      break;
+    }
+    yaml_event_delete(&event);    
+  }
+  return(0);
+}
+
 int yaml_keyboard_sequence_loop(yaml_parser_t *parser){
   char key[128];
   char value[128];
@@ -3279,6 +3360,10 @@ int yaml_event_loop(yaml_parser_t *parser){
     case YAML_MAPPING_START_EVENT:
       // printf("[Start Mapping]\n");
       if(strcmp(key,"root") == 0){ break; } // Start of root mapping, ignore
+      if(strcmp(key,"lam") == 0){
+	rv = yaml_lam_mapping_loop(parser);
+	goto map_done;
+      }
       if(strcmp(key,"keyboard") == 0){
 	rv = yaml_keyboard_mapping_loop(parser);
 	goto map_done;
