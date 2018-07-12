@@ -50,6 +50,8 @@ void warp_mouse_callback(int cp);
 int logmsgf(int type, int level, const char *format, ...);
 
 // Type numbers
+// Make sure these stay in sync with the array logtype_name in kernel.c
+// I can't initialize that here because gcc whines about it (sigh)
 #define LT_SYSTEM 0
 #define LT_SDU 1
 #define LT_LAMBDA 2
@@ -64,19 +66,6 @@ int logmsgf(int type, int level, const char *format, ...);
 #define LT_LISP 11
 // If you let MAX_LOGTYPE get above the actual number of initialized types, you're gonna have a bad time
 #define MAX_LOGTYPE 12
-
-static const char *logtype_name[] = { "SYSTEM",
-				      "SDU",
-				      "LAMBDA",
-				      "NUBUS",
-				      "MULTIBUS",
-				      "RTC",
-				      "VCMEM",
-				      "3COM",
-				      "SMD",
-				      "TAPEMASTER",
-				      "MEM",
-				      "LISP" };
 
 // Dump options bits
 #define DUMP_A_MEM 0x00000001

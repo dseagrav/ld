@@ -456,6 +456,19 @@ void write_rtc_nvram();
 
 // Logging
 uint8_t loglevel[MAX_LOGTYPE];
+// Make sure this stays in sync with the #defines in ld.h, or you're gonna have a bad time
+static const char *logtype_name[] = { "SYSTEM",
+				      "SDU",
+				      "LAMBDA",
+				      "NUBUS",
+				      "MULTIBUS",
+				      "RTC",
+				      "VCMEM",
+				      "3COM",
+				      "SMD",
+				      "TAPEMASTER",
+				      "MEM",
+				      "LISP" };
 
 // SDL items
 // Keyboard buffer
