@@ -72,7 +72,7 @@ void mem_clock_pulse(){
 	    break;
 
 	  case 2: // Block Transfer (ILLEGAL)
-	    printf("MEM: BLOCK READ REQUESTED\n");
+	    logmsgf(LT_MEM,0,"MEM: BLOCK READ REQUESTED\n");
 	    ld_die_rq=1;
 	    break;
 
@@ -95,7 +95,7 @@ void mem_clock_pulse(){
 	    break;
 
 	  case 2: // BLOCK TRANSFER (ILLEGAL)
-	    printf("MEM8: BLOCK TRANSFER REQUESTED\n");
+	    logmsgf(LT_MEM,0,"MEM8: BLOCK TRANSFER REQUESTED\n");
 	    ld_die_rq=1;
 	    break;
 
@@ -126,15 +126,15 @@ void mem_clock_pulse(){
 	/*
       case 0xffdfe0: // ???
         if(NUbus_Request == VM_BYTE_READ){
-	  printf("MEM: CSR READ?\n");
+	  logmsgf(LT_MEM,10,"MEM: CSR READ?\n");
 	  NUbus_Data.word = 0;
           NUbus_acknowledge=1;
           return;
         }
         if(NUbus_Request == VM_BYTE_WRITE){
-	  printf("MEM: CSR WRITE? DATA = 0x");
+	  logmsgf(LT_MEM,10,"MEM: CSR WRITE? DATA = 0x");
 	  writeH8(NUbus_Data.byte[0]);
-	  printf("\n");
+	  logmsgf(LT_MEM,10,"\n");
           NUbus_acknowledge=1;
           return;
         }
@@ -148,13 +148,13 @@ void mem_clock_pulse(){
 
       case 0xffdfe5: // Mem control, 8b, read-write
         if(NUbus_Request == VM_BYTE_READ){
-	  printf("MEM: MEM CONTROL READ?\n");
+	  logmsgf(LT_MEM,10,"MEM: MEM CONTROL READ?\n");
 	  NUbus_Data.word = 0;
           NUbus_acknowledge=1;
           return;
         }
         if(NUbus_Request == VM_BYTE_WRITE){
-	  printf("MEM: MEM CONTROL WRITE? DATA = 0x%X\n",NUbus_Data.byte[0]);
+	  logmsgf(LT_MEM,10,"MEM: MEM CONTROL WRITE? DATA = 0x%X\n",NUbus_Data.byte[0]);
           NUbus_acknowledge=1;
           return;
         }
@@ -213,7 +213,7 @@ void mem_clock_pulse(){
 	
       // Uhoh!
       default:
-	printf("RAM: Unimplemented address 0x%X (0x%X)\n",
+	logmsgf(LT_MEM,0,"RAM: Unimplemented address 0x%X (0x%X)\n",
 	       NUbus_Address.Addr,NUbus_Address.raw);
 	lambda_dump(DUMP_ALL);
 	ld_die_rq=1;      

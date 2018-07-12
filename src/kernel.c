@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
@@ -453,6 +454,9 @@ void FB_dump(int vn);
 void write_nvram();
 void write_rtc_nvram();
 
+// Logging
+uint8_t loglevel[MAX_LOGTYPE];
+
 // SDL items
 // Keyboard buffer
 uint8_t keyboard_io_ring[2][0x100];
@@ -465,6 +469,17 @@ uint8_t mouse_io_ring_top[2],mouse_io_ring_bottom[2];
 uint8_t mouse_phase=0;
 uint8_t mouse_capture=1; // Pointer capture state in mode 0, pointer hide/show state in mode 1
 uint8_t mouse_last_buttons=0x07;
+
+int logmsgf(int type, int level, const char *format, ...){
+  va_list args;
+  int rv = 0;
+  if(type > MAX_LOGTYPE || loglevel[type] >= level){
+    va_start(args, format);
+    rv = vprintf(format, args);
+    va_end(args);
+  }
+  return(rv);
+}
 
 // Keyboard TX ring
 int put_rx_ring(int vn,unsigned char ch){
@@ -726,7 +741,7 @@ void set_bow_mode(int vn,int mode){
     // printf("BLACK-ON-WHITE MODE unchanged\n");
     return;                   /* noop */
   }
-  printf("VC %d BLACK-ON-WHITE MODE now %d\n",vn,mode);
+  logmsgf(LT_VCMEM,10,"VC %d BLACK-ON-WHITE MODE now %d\n",vn,mode);
   black_on_white[vn] = mode;  /* update */
 
   // invert pixels
@@ -1288,7 +1303,7 @@ void set_bow_mode(int vn,int mode){
     // printf("BLACK-ON-WHITE MODE unchanged\n");
     return;                   /* noop */
   }
-  printf("VC %d BLACK-ON-WHITE MODE now %d\n",vn,mode);
+  logmsgf(LT_VCMEM,10,"VC %d BLACK-ON-WHITE MODE now %d\n",vn,mode);
   black_on_white[vn] = mode;  /* update */
   
   // invert pixels
@@ -2536,7 +2551,9 @@ void audio_control(int onoff) {
   // this value seems to "work" for single beeps, and multiple beeps (around 4)
   // with default values for TV:BEEP-WAVELENGTH and TV:BEEP-DURATION,
   if(onoff && (real_time > (toggle_time + 1))){
-    printf("\aBEEP\n");
+    printf("\a");
+    logmsgf(LT_VCMEM,10,"BEEP\n");
+    fflush(stdout);
     toggle_time = real_time;
   }
   state = onoff;
@@ -2745,7 +2762,6 @@ void parse_config_line(char *line){
     }
     return;
   }
-
   if(strcasecmp(tok,"map_key") == 0){
     // Alter keyboard map
     tok = strtok(NULL," \t\r\n");
@@ -2763,7 +2779,41 @@ void parse_config_line(char *line){
       printf("key_map: Missing decimal SDL keycode value\n");
     }
   }
-
+  if(strcasecmp(tok,"log") == 0){
+    // Alter log levels
+    tok = strtok(NULL," \t\r\n");
+    if(tok != NULL){
+      char *value = strtok(NULL," \t\r\n");
+      if(value != NULL){
+	int x = 0;
+	// Do we know what this is?
+	if(strcasecmp(tok,"ALL") == 0){
+	  int val = atoi(value);
+	  while(x < MAX_LOGTYPE){
+	    loglevel[x] = val;
+	    x++;
+	  }
+	  printf("Global log level %d\n",val);
+	  return;
+	}
+	while(x < MAX_LOGTYPE){
+	  if(strcasecmp(tok,logtype_name[x]) == 0){
+	    // Yes
+	    int val = atoi(value);
+	    printf("%s log level %d\n",logtype_name[x],val);
+	    loglevel[x] = val;
+	    return;
+	  }
+	  x++;
+	}
+	printf("log: Unknown log type %s\n",tok);
+      }else{
+	printf("log: Missing log level\n");
+      }
+    }else{
+      printf("log: Missing log type\n");
+    }
+  }
 }
 
 #ifdef HAVE_YAML_H
@@ -3298,6 +3348,95 @@ int yaml_mouse_mapping_loop(yaml_parser_t *parser){
   return(0);  
 }
 
+int yaml_log_mapping_loop(yaml_parser_t *parser){
+  char key[128];
+  char value[128];
+  yaml_event_t event;
+  int mapping_done = 0;
+  key[0] = 0;
+  value[0] = 0;
+  while(mapping_done == 0){
+    if(!yaml_parser_parse(parser, &event)){
+      if(parser->context != NULL){
+	printf("YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
+      }else{
+	printf("YAML: Parser error %d: %s\n", parser->error,parser->problem);
+      }
+      return(-1);
+    }
+    switch(event.type){
+    case YAML_NO_EVENT:
+      printf("No event?\n");
+      break;
+    case YAML_STREAM_START_EVENT:
+    case YAML_DOCUMENT_START_EVENT:
+      // printf("STREAM START\n");
+      printf("Unexpected stream/document start\n");
+      break;
+    case YAML_STREAM_END_EVENT:
+    case YAML_DOCUMENT_END_EVENT:
+      // printf("[End Document]\n");
+      printf("Unexpected stream/document end\n");
+      break;
+    case YAML_SEQUENCE_START_EVENT:
+      printf("Unexpected sequence start\n");
+      return(-1);
+      break;
+    case YAML_MAPPING_START_EVENT:
+      printf("Unexpected mapping start\n");
+      return(-1);
+      break;
+    case YAML_SEQUENCE_END_EVENT:
+      printf("Unexpected sequence end\n");
+      return(-1);
+      break;
+    case YAML_MAPPING_END_EVENT:
+      mapping_done = 1;
+      break;
+    case YAML_ALIAS_EVENT:
+      printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
+      return(-1);
+      break;
+    case YAML_SCALAR_EVENT:
+      if(key[0] == 0){
+	strncpy(key,(const char *)event.data.scalar.value,128);
+      }else{
+	int x=0;
+	strncpy(value,(const char *)event.data.scalar.value,128);
+	// Do we know what this is?
+	if(strcasecmp(key,"ALL") == 0){
+	  int val = atoi(value);
+	  while(x < MAX_LOGTYPE){
+	    loglevel[x] = val;
+	    x++;
+	  }
+	  printf("Global log level %d\n",val);
+	  goto value_done;
+	}
+	while(x < MAX_LOGTYPE){
+	  if(strcasecmp(key,logtype_name[x]) == 0){
+	    // Yes
+	    int val = atoi(value);
+	    printf("%s log level %d\n",logtype_name[x],val);
+	    loglevel[x] = val;
+	    goto value_done;
+	  }
+	  x++;
+	}
+        printf("log: Unknown key %s (value %s)\n",key,value);
+	return(-1);
+	// Done
+      value_done:
+	key[0] = 0;
+	break;
+      }
+      break;
+    }
+    yaml_event_delete(&event);
+  }
+  return(0);  
+}
+
 int yaml_event_loop(yaml_parser_t *parser){
   char key[128];  
   yaml_event_t event;
@@ -3386,6 +3525,10 @@ int yaml_event_loop(yaml_parser_t *parser){
       }
       if(strcmp(key,"disk") == 0){
 	rv = yaml_disk_mapping_loop(parser);
+	goto map_done;
+      }
+      if(strcmp(key,"log") == 0){
+	rv = yaml_log_mapping_loop(parser);
 	goto map_done;
       }
       printf("Unexpected mapping key: %s\n",key);
@@ -3520,6 +3663,15 @@ int main(int argc, char *argv[]){
   mouse_io_ring_bottom[0] = mouse_io_ring_bottom[1] = 0;
   printf("LambdaDelta\n");  
 
+  // Clobber loglevels
+  {
+    int x=0;
+    while(x < MAX_LOGTYPE){
+      loglevel[x] = 0;
+      x++;
+    }
+  }
+  
   // Read default keymap
 #ifdef SDL1
   init_sdl_to_keysym_map();

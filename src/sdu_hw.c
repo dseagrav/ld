@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "ld.h"
 #include "sdu.h"
 #include "sdu_hw.h"
 
@@ -77,14 +78,14 @@ void intcall86 (uint8_t intnum);
 
 void write86 (uint32_t addr32, uint8_t value) {
   if(dotrace){
-    printf("i8088: Write Byte 0x%x = 0x%x\n",addr32,value);
+    logmsgf(LT_SDU,10,"i8088: Write Byte 0x%x = 0x%x\n",addr32,value);
   }
   tempaddr32 = addr32 & 0xFFFFF;
   multibus_write((mbAddr)tempaddr32,value);
 }
 
 void writew86 (uint32_t addr32, uint16_t value) {
-  // printf("i8088: Write Word 0x%x = 0x%x\n",addr32,value);
+  // logmsgf(LT_SDU,10,"i8088: Write Word 0x%x = 0x%x\n",addr32,value);
   // The SDU's 8088 has an 8-bit BIU, it cannot generate word cycles
   write86 (addr32, (uint8_t) value);
   write86 (addr32 + 1, (uint8_t) (value >> 8) );
@@ -95,7 +96,7 @@ uint8_t read86 (uint32_t addr32) {
   addr32 &= 0xFFFFF;
   data = multibus_read((mbAddr)addr32);
   if(dotrace && addr32 < 0xF0000){
-    printf("i8088: Read Byte 0x%x = 0x%x\n",addr32,data);
+    logmsgf(LT_SDU,10,"i8088: Read Byte 0x%x = 0x%x\n",addr32,data);
   }
   return(data);
 }
@@ -104,7 +105,7 @@ uint16_t readw86 (uint32_t addr32) {
   uint16_t word = 0xFFFF;
   // The SDU's 8088 has an 8-bit BIU, it cannot generate word cycles
   word = (uint16_t) read86 (addr32) | (uint16_t) (read86 (addr32 + 1) << 8);
-  // printf("i8088: Read Word 0x%x = 0x%x\n",addr32,word);
+  // logmsgf(LT_SDU,10,"i8088: Read Word 0x%x = 0x%x\n",addr32,word);
   return ( word );
 }
 
@@ -118,13 +119,13 @@ uint8_t portin (uint16_t portnum) {
 
 void portout16 (uint16_t portnum, uint16_t value) {
   ld_die_rq = 1;
-  printf("i8088: PORT OUT WORD: %x = %x\n",portnum,value);
+  logmsgf(LT_SDU,0,"i8088: PORT OUT WORD: %x = %x\n",portnum,value);
 }
 
 uint16_t portin16 (uint16_t portnum) {
   ld_die_rq = 1;
   uint16_t ret = 0xFFFF;
-  printf("i8088: PORT IN WORD: %x\n",portnum);
+  logmsgf(LT_SDU,0,"i8088: PORT IN WORD: %x\n",portnum);
   return (ret);
 }
 
@@ -1148,7 +1149,7 @@ void op_grp5() {
     getea (rm);
     ip = (uint16_t) read86 (ea) + (uint16_t) read86 (ea + 1) * 256;
     segregs[regcs] = (uint16_t) read86 (ea + 2) + (uint16_t) read86 (ea + 3) * 256;
-    if(dotrace == 1){ printf("i8088: CS = %.4X\n",segregs[regcs]); }
+    if(dotrace == 1){ logmsgf(LT_SDU,10,"i8088: CS = %.4X\n",segregs[regcs]); }
     break;
 
   case 4: /* JMP Ev */
@@ -1159,7 +1160,7 @@ void op_grp5() {
     getea (rm);
     ip = (uint16_t) read86 (ea) + (uint16_t) read86 (ea + 1) * 256;
     segregs[regcs] = (uint16_t) read86 (ea + 2) + (uint16_t) read86 (ea + 3) * 256;
-    if(dotrace == 1){ printf("i8088: CS = %.4X\n",segregs[regcs]); }
+    if(dotrace == 1){ logmsgf(LT_SDU,10,"i8088: CS = %.4X\n",segregs[regcs]); }
     break;
 
   case 6: /* PUSH Ev */
@@ -1177,8 +1178,8 @@ void intcall86 (uint8_t intnum) {
   push (ip);
   segregs[regcs] = getmem16 (0, (uint16_t) intnum * 4 + 2);
   if(dotrace == 1){ 
-    printf("i8088: INTERRUPT %d\n",intnum);
-    printf("i8088: CS = %.4X\n",segregs[regcs]);
+    logmsgf(LT_SDU,10,"i8088: INTERRUPT %d\n",intnum);
+    logmsgf(LT_SDU,10,"i8088: CS = %.4X\n",segregs[regcs]);
   }
   ip = getmem16 (0, (uint16_t) intnum * 4);
   ifl = 0;
@@ -1241,7 +1242,7 @@ void i8086_clockpulse(){
     // if(segregs[regcs] == 0xF000 && ip == 0x2D19){ dotrace = 1; }
     if(dotrace == 1){ // || (segregs[regcs] != 0xFFFF && segregs[regcs] != 0xF000)){
       // dotrace = 1;
-      printf("i8088: CS:IP %.4X:%.4X = 0x%X\n",segregs[regcs],ip,opcode);
+      logmsgf(LT_SDU,10,"i8088: CS:IP %.4X:%.4X = 0x%X\n",segregs[regcs],ip,opcode);
     }    
     StepIP (1);
 
@@ -1339,7 +1340,7 @@ void i8086_clockpulse(){
 
   case 0x7:       /* 07 POP segregs[reges] */
     segregs[reges] = pop();
-    if(dotrace == 1){ printf("i8088: ES = %.4X\n",segregs[reges]); }
+    if(dotrace == 1){ logmsgf(LT_SDU,10,"i8088: ES = %.4X\n",segregs[reges]); }
     break;
 
   case 0x8:       /* 08 OR Eb Gb */
@@ -1401,7 +1402,7 @@ void i8086_clockpulse(){
     // #ifdef CPU_ALLOW_POP_CS //only the 8086/8088 does this.
   case 0xF: //0F POP CS
     segregs[regcs] = pop();
-    if(dotrace == 1){ printf("i8088: CS = %.4X\n",segregs[regcs]); }
+    if(dotrace == 1){ logmsgf(LT_SDU,10,"i8088: CS = %.4X\n",segregs[regcs]); }
     break;
     // #endif
 
@@ -1459,7 +1460,7 @@ void i8086_clockpulse(){
 
   case 0x17:      /* 17 POP segregs[regss] */
     segregs[regss] = pop();
-    if(dotrace == 1){ printf("i8088: SS = %.4X\n",segregs[regss]); }
+    if(dotrace == 1){ logmsgf(LT_SDU,10,"i8088: SS = %.4X\n",segregs[regss]); }
     break;
 
   case 0x18:      /* 18 SBB Eb Gb */
@@ -1516,7 +1517,7 @@ void i8086_clockpulse(){
 
   case 0x1F:      /* 1F POP segregs[regds] */
     segregs[regds] = pop();
-    if(dotrace == 1){ printf("i8088: DS = %.4X\n",segregs[regds]); }
+    if(dotrace == 1){ logmsgf(LT_SDU,10,"i8088: DS = %.4X\n",segregs[regds]); }
     break;
 
   case 0x20:      /* 20 AND Eb Gb */
@@ -2490,16 +2491,16 @@ void i8086_clockpulse(){
     putsegreg (reg, readrm16 (rm) );
     if(dotrace == 1){
       if(reg == 0){
-	printf("i8088: ES = %.4X\n",segregs[reges]);
+	logmsgf(LT_SDU,10,"i8088: ES = %.4X\n",segregs[reges]);
       }
       if(reg == 1){
-	printf("i8088: CS = %.4X\n",segregs[regcs]);
+	logmsgf(LT_SDU,10,"i8088: CS = %.4X\n",segregs[regcs]);
       }
       if(reg == 2){
-	printf("i8088: SS = %.4X\n",segregs[regss]);
+	logmsgf(LT_SDU,10,"i8088: SS = %.4X\n",segregs[regss]);
       }
       if(reg == 3){
-	printf("i8088: DS = %.4X\n",segregs[regds]);
+	logmsgf(LT_SDU,10,"i8088: DS = %.4X\n",segregs[regds]);
       }
     }
     break;
@@ -2581,7 +2582,7 @@ void i8086_clockpulse(){
     push (ip);
     ip = oper1;
     segregs[regcs] = oper2;
-    if(dotrace == 1){ printf("i8088: CS = %.4X\n",segregs[regcs]); }
+    if(dotrace == 1){ logmsgf(LT_SDU,10,"i8088: CS = %.4X\n",segregs[regcs]); }
     break;
 
   case 0x9B:      /* 9B WAIT */
@@ -3054,7 +3055,7 @@ void i8086_clockpulse(){
     getea (rm);
     putreg16 (reg, read86 (ea) + read86 (ea + 1) * 256);
     segregs[reges] = read86 (ea + 2) + read86 (ea + 3) * 256;
-    if(dotrace == 1){ printf("i8088: ES = %.4X\n",segregs[reges]); }
+    if(dotrace == 1){ logmsgf(LT_SDU,10,"i8088: ES = %.4X\n",segregs[reges]); }
     break;
 
   case 0xC5:      /* C5 LDS Gv Mp */
@@ -3062,7 +3063,7 @@ void i8086_clockpulse(){
     getea (rm);
     putreg16 (reg, read86 (ea) + read86 (ea + 1) * 256);
     segregs[regds] = read86 (ea + 2) + read86 (ea + 3) * 256;
-    if(dotrace == 1){ printf("i8088: DS = %.4X\n",segregs[regds]); }
+    if(dotrace == 1){ logmsgf(LT_SDU,10,"i8088: DS = %.4X\n",segregs[regds]); }
     break;
 
   case 0xC6:      /* C6 MOV Eb Ib */
@@ -3107,14 +3108,14 @@ void i8086_clockpulse(){
     oper1 = getmem16 (segregs[regcs], ip);
     ip = pop();
     segregs[regcs] = pop();
-    if(dotrace == 1){ printf("i8088: CS = %.4X\n",segregs[regcs]); }
+    if(dotrace == 1){ logmsgf(LT_SDU,10,"i8088: CS = %.4X\n",segregs[regcs]); }
     regs.wordregs[regsp] = regs.wordregs[regsp] + oper1;
     break;
 
   case 0xCB:      /* CB RETF */
     ip = pop();;
     segregs[regcs] = pop();
-    if(dotrace == 1){ printf("i8088: CS = %.4X\n",segregs[regcs]); }
+    if(dotrace == 1){ logmsgf(LT_SDU,10,"i8088: CS = %.4X\n",segregs[regcs]); }
     break;
 
   case 0xCC:      /* CC INT 3 */
@@ -3136,7 +3137,7 @@ void i8086_clockpulse(){
   case 0xCF:      /* CF IRET */
     ip = pop();
     segregs[regcs] = pop();
-    if(dotrace == 1){ printf("i8088: CS = %.4X\n",segregs[regcs]); }
+    if(dotrace == 1){ logmsgf(LT_SDU,10,"i8088: CS = %.4X\n",segregs[regcs]); }
     decodeflagsword (pop() );
 
     /*
@@ -3289,7 +3290,7 @@ void i8086_clockpulse(){
     oper2 = getmem16 (segregs[regcs], ip);
     ip = oper1;
     segregs[regcs] = oper2;
-    if(dotrace == 1){ printf("i8088: CS = %.4X\n",segregs[regcs]); }
+    if(dotrace == 1){ logmsgf(LT_SDU,10,"i8088: CS = %.4X\n",segregs[regcs]); }
     break;
 
   case 0xEB:      /* EB JMP Jb */
@@ -3408,7 +3409,7 @@ void i8086_clockpulse(){
     /* technically they aren't exactly like NOPs in most cases, but for our pursoses, that's accurate enough. */
 #endif
     //    if (verbose) {
-    printf ("Illegal opcode: %02X %02X /%X @ %04X:%04X\n", getmem8(savecs, saveip), getmem8(savecs, saveip+1), (getmem8(savecs, saveip+2) >> 3) & 7, savecs, saveip);
+    logmsgf(LT_SDU,1,"Illegal opcode: %02X %02X /%X @ %04X:%04X\n", getmem8(savecs, saveip), getmem8(savecs, saveip+1), (getmem8(savecs, saveip+2) >> 3) & 7, savecs, saveip);
     // }
     break;
   }

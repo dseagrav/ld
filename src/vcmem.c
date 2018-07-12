@@ -70,9 +70,9 @@ void vcmem_kb_int(int vn){
     vcS[vn].InterruptStatus.SerialFIFOFull = 1;
     if(NUbus_Busy == 0){    
       nubus_io_request(VM_WRITE,0xF4,vcS[vn].InterruptAddr,0xFFFFFFFF);
-      // printf("VCMEM: Int generated\n");
+      // logmsgf(LT_VCMEM,,"VCMEM: Int generated\n");
     }else{
-      printf("VCMEM: KB int while bus busy\n");
+      logmsgf(LT_VCMEM,0,"VCMEM: KB int while bus busy\n");
     }
   }
 }
@@ -92,7 +92,7 @@ void vcmem_clock_pulse(int vn){
 	// We can has bus
 	nubus_io_request(VM_WRITE,0xF4,vcS[vn].InterruptAddr,0xFFFFFFFF);
 	vcS[vn].cycle_count = 0;
-	// printf("VCMEM: VB Int generated\n");
+	// logmsgf(LT_VCMEM,,"VCMEM: VB Int generated\n");
       }
     }else{
       vcS[vn].cycle_count = 0; // No interrupt, carry on
@@ -108,7 +108,7 @@ void vcmem_clock_pulse(int vn){
 	// 00 = Function register
       case 0x00: // 00 = Function Register
 	if(NUbus_Request == VM_BYTE_READ){
-	  printf("VCMEM: Function Reg Byte Read\n");
+	  logmsgf(LT_VCMEM,10,"VCMEM: Function Reg Byte Read\n");
 	  NUbus_Data.byte[0] = vcS[vn].Function.byte[0];
 	  NUbus_acknowledge=1;
 	  return;
@@ -116,11 +116,11 @@ void vcmem_clock_pulse(int vn){
 	if(NUbus_Request == VM_BYTE_WRITE){
 	  vcS[vn].Function.byte[0] = NUbus_Data.byte[0];
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: Function Reg Byte Write: ");
-	    if(vcS[vn].Function.Reset != 0){ printf(" RESET"); }
-	    if(vcS[vn].Function.BoardEnable != 0){ printf(" ENABLE"); }
-	    if(vcS[vn].Function.LED != 0){ printf(" LED"); }
-	    printf(" FUNCTION=%d\n",vcS[vn].Function.Function);
+	    logmsgf(LT_VCMEM,10,"VCMEM: Function Reg Byte Write: ");
+	    if(vcS[vn].Function.Reset != 0){ logmsgf(LT_VCMEM,10," RESET"); }
+	    if(vcS[vn].Function.BoardEnable != 0){ logmsgf(LT_VCMEM,10," ENABLE"); }
+	    if(vcS[vn].Function.LED != 0){ logmsgf(LT_VCMEM,10," LED"); }
+	    logmsgf(LT_VCMEM,10," FUNCTION=%d\n",vcS[vn].Function.Function);
 	  }
 	  NUbus_acknowledge=1;
 	  return;
@@ -129,13 +129,13 @@ void vcmem_clock_pulse(int vn){
 	break;
       case 0x01: 
 	if(NUbus_Request == VM_BYTE_READ){
-	  printf("VCMEM: Function Reg Hi Byte Read\n");
+	  logmsgf(LT_VCMEM,10,"VCMEM: Function Reg Hi Byte Read\n");
 	  NUbus_Data.byte[1] = vcS[vn].Function.byte[1];
 	  NUbus_acknowledge=1;
 	  return;
 	}
 	if(NUbus_Request == VM_BYTE_WRITE){
-	  printf("VCMEM: Function Reg Hi Byte Write\n");
+	  logmsgf(LT_VCMEM,10,"VCMEM: Function Reg Hi Byte Write\n");
 	  vcS[vn].Function.byte[1] = NUbus_Data.byte[1];
 	  NUbus_acknowledge=1;
 	  return;
@@ -144,13 +144,13 @@ void vcmem_clock_pulse(int vn){
 	
       case 0x04: // 04 = Memory Control register
 	if(NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ){
-	  printf("VCMEM: Memory Control Reg Read\n");
+	  logmsgf(LT_VCMEM,10,"VCMEM: Memory Control Reg Read\n");
 	  NUbus_Data.word = vcS[vn].MemoryControl.raw;
 	  NUbus_acknowledge=1;
 	  return;
 	}
 	if(NUbus_Request == VM_WRITE || NUbus_Request == VM_BYTE_WRITE){
-	  printf("VCMEM: Memory Control Reg Write: 0x%X\n",NUbus_Data.word);
+	  logmsgf(LT_VCMEM,10,"VCMEM: Memory Control Reg Write: 0x%X\n",NUbus_Data.word);
 	  vcS[vn].MemoryControl.raw = NUbus_Data.word;
 	  set_bow_mode(vn,vcS[vn].MemoryControl.ReverseVideo ? 1 : 0); // Update black-on-white mode
 	  NUbus_acknowledge=1;
@@ -159,13 +159,13 @@ void vcmem_clock_pulse(int vn){
 	break;
       case 0x05:
 	if(NUbus_Request == VM_BYTE_READ){
-	  printf("VCMEM: Memory Control Reg Hi Byte Read\n");
+	  logmsgf(LT_VCMEM,10,"VCMEM: Memory Control Reg Hi Byte Read\n");
 	  NUbus_Data.byte[1] = vcS[vn].MemoryControl.byte[1];
 	  NUbus_acknowledge=1;
 	  return;
 	}
 	if(NUbus_Request == VM_BYTE_WRITE){
-	  printf("VCMEM: Memory Control Reg Hi Byte Write\n");
+	  logmsgf(LT_VCMEM,10,"VCMEM: Memory Control Reg Hi Byte Write\n");
 	  vcS[vn].MemoryControl.byte[1] = NUbus_Data.byte[1];
 	  set_bow_mode(vn,vcS[vn].MemoryControl.ReverseVideo ? 1 : 0); // Update black-on-white mode
 	  NUbus_acknowledge=1;
@@ -176,7 +176,7 @@ void vcmem_clock_pulse(int vn){
 
       case 0x08 ... 0x0B: // Interrupt Address
 	if(NUbus_Request == VM_WRITE && NUbus_Address.Byte == 0){
-	  printf("VCMEM: Interrupt Address Reg Write: 0x%X\n",NUbus_Data.word);
+	  logmsgf(LT_VCMEM,10,"VCMEM: Interrupt Address Reg Write: 0x%X\n",NUbus_Data.word);
 	  vcS[vn].InterruptAddr = NUbus_Data.word;
 	  NUbus_acknowledge=1;
 	  return;
@@ -186,7 +186,7 @@ void vcmem_clock_pulse(int vn){
           Word = vcS[vn].InterruptAddr;
           Word >>= (8*NUbus_Address.Byte);
           NUbus_Data.byte[NUbus_Address.Byte] = (Word&0xFF);
-          printf("VCMEM: Interrupt Address Reg Byte Read, returning 0x%X\n",
+          logmsgf(LT_VCMEM,10,"VCMEM: Interrupt Address Reg Byte Read, returning 0x%X\n",
 		 NUbus_Data.byte[NUbus_Address.Byte]);
           NUbus_acknowledge=1;
           return;
@@ -194,7 +194,7 @@ void vcmem_clock_pulse(int vn){
 	if(NUbus_Request == VM_BYTE_WRITE){
           uint32_t Word = NUbus_Data.byte[NUbus_Address.Byte];
           uint32_t Mask = 0xFF;
-	  printf("VCMEM: Interrupt Address Reg Byte Write: 0x%X\n",
+	  logmsgf(LT_VCMEM,10,"VCMEM: Interrupt Address Reg Byte Write: 0x%X\n",
 		 NUbus_Data.byte[NUbus_Address.Byte]);
           Mask <<= (8*NUbus_Address.Byte);
           vcS[vn].InterruptAddr &= ~Mask;
@@ -208,7 +208,7 @@ void vcmem_clock_pulse(int vn){
       case 0x0C ... 0x0F: // Interrupt Status Register
 	if(NUbus_Request == VM_READ && NUbus_Address.Byte == 0){
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: Interrupt Status Reg Read\n");
+	    logmsgf(LT_VCMEM,10,"VCMEM: Interrupt Status Reg Read\n");
 	  }
 	  NUbus_Data.word = vcS[vn].InterruptStatus.raw;
 	  NUbus_acknowledge=1;
@@ -216,7 +216,7 @@ void vcmem_clock_pulse(int vn){
 	}
 	if(NUbus_Request == VM_BYTE_READ){
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: Interrupt Status Reg Byte Read\n");
+	    logmsgf(LT_VCMEM,10,"VCMEM: Interrupt Status Reg Byte Read\n");
 	  }
 	  NUbus_Data.byte[NUbus_Address.Byte] = vcS[vn].InterruptStatus.byte[NUbus_Address.Byte];
 	  NUbus_acknowledge=1;
@@ -226,19 +226,19 @@ void vcmem_clock_pulse(int vn){
 		
       case 0x10: // Serial Port Control Register
 	if(NUbus_Request == VM_WRITE){
-	  printf("VCMEM: Serial Port Control Reg Write: 0x%X\n",NUbus_Data.word);
+	  logmsgf(LT_VCMEM,10,"VCMEM: Serial Port Control Reg Write: 0x%X\n",NUbus_Data.word);
 	  vcS[vn].SerialControl.raw = NUbus_Data.word;
 	  NUbus_acknowledge=1;
 	  return;
 	}
 	if(NUbus_Request == VM_BYTE_WRITE){
-	  printf("VCMEM: Serial Port Control Reg Byte Write: 0x%X\n",NUbus_Data.word);
+	  logmsgf(LT_VCMEM,10,"VCMEM: Serial Port Control Reg Byte Write: 0x%X\n",NUbus_Data.word);
 	  vcS[vn].SerialControl.byte[0] = NUbus_Data.byte[0];
 	  NUbus_acknowledge=1;
 	  return;
 	}
         if(NUbus_Request == VM_BYTE_READ){
-	  printf("VCMEM: Serial Port Control Reg Byte Read\n");
+	  logmsgf(LT_VCMEM,10,"VCMEM: Serial Port Control Reg Byte Read\n");
           NUbus_Data.byte[NUbus_Address.Byte] = vcS[vn].SerialControl.byte[NUbus_Address.Byte];
           NUbus_acknowledge=1;
           return;
@@ -246,13 +246,13 @@ void vcmem_clock_pulse(int vn){
 	break;
       case 0x11: // Serial Port Control Register (Hi)
 	if(NUbus_Request == VM_BYTE_WRITE){
-	  printf("VCMEM: Serial Port Control Reg (Hi) Byte Write: 0x%X\n",NUbus_Data.word);
+	  logmsgf(LT_VCMEM,10,"VCMEM: Serial Port Control Reg (Hi) Byte Write: 0x%X\n",NUbus_Data.word);
 	  vcS[vn].SerialControl.byte[1] = NUbus_Data.byte[1];
 	  NUbus_acknowledge=1;
 	  return;
 	}
         if(NUbus_Request == VM_BYTE_READ){
-	  printf("VCMEM: Serial Port Control Reg Byte Read\n");
+	  logmsgf(LT_VCMEM,10,"VCMEM: Serial Port Control Reg Byte Read\n");
           NUbus_Data.byte[NUbus_Address.Byte] = vcS[vn].SerialControl.byte[NUbus_Address.Byte];
           NUbus_acknowledge=1;
           return;
@@ -261,13 +261,13 @@ void vcmem_clock_pulse(int vn){
 
       case 0x14: // Serial Port Transmit (keytty?)
 	if(NUbus_Request == VM_BYTE_WRITE){
-	  printf("VCMEM: Serial Port Transmit Reg Byte Write: 0x%X\n",NUbus_Data.word);
+	  logmsgf(LT_VCMEM,10,"VCMEM: Serial Port Transmit Reg Byte Write: 0x%X\n",NUbus_Data.word);
 	  // Discard data
 	  NUbus_acknowledge=1;
 	  return;
 	}
 	if(NUbus_Request == VM_BYTE_READ){
-	  printf("VCMEM: Serial Port Transmit Reg Read\n");
+	  logmsgf(LT_VCMEM,10,"VCMEM: Serial Port Transmit Reg Read\n");
 	  if(keyboard_io_ring_top[vn] != keyboard_io_ring_bottom[vn]){
 	    NUbus_Data.word = 1; // We have a key
 	  }else{
@@ -281,7 +281,7 @@ void vcmem_clock_pulse(int vn){
       case 0x18: // Serial Port Recieve (keytty keyboard?)
 	if(NUbus_Request == VM_BYTE_READ){
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: Serial Port Recieve Reg Byte Read\n");
+	    logmsgf(LT_VCMEM,10,"VCMEM: Serial Port Recieve Reg Byte Read\n");
 	  }
 	  NUbus_Data.word = 0;
 	  NUbus_acknowledge=1;
@@ -293,25 +293,25 @@ void vcmem_clock_pulse(int vn){
 	// See vcmem-serial-set-up-port
 	if(NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ){
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: Serial Port A Data Read\n");
+	    logmsgf(LT_VCMEM,10,"VCMEM: Serial Port A Data Read\n");
 	  }
 	  if(keyboard_io_ring_top[vn] != keyboard_io_ring_bottom[vn]){
 	    NUbus_Data.word = keyboard_io_ring[vn][keyboard_io_ring_bottom[vn]];
 	    // writeOct(keyboard_io_ring[keyboard_io_ring_bottom]);
-	    // printf(" from ");
+	    // logmsgf(LT_VCMEM,," from ");
 	    // writeDec(keyboard_io_ring_bottom);
 	    keyboard_io_ring_bottom[vn]++;
 	  }else{
-	    // printf("0 from nowhere");
+	    // logmsgf(LT_VCMEM,,"0 from nowhere");
 	    NUbus_Data.word = 0;
 	  }
-	  // printf("\n");
+	  // logmsgf(LT_VCMEM,,"\n");
 	  NUbus_acknowledge=1;
 	  return;		
 	}
 	if(NUbus_Request == VM_WRITE || NUbus_Request == VM_BYTE_WRITE){
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: Serial Port A Data = 0x%X\n",NUbus_Data.byte[0]);
+	    logmsgf(LT_VCMEM,10,"VCMEM: Serial Port A Data = 0x%X\n",NUbus_Data.byte[0]);
 	  }
 	  NUbus_acknowledge=1;
 	  return;	
@@ -321,7 +321,7 @@ void vcmem_clock_pulse(int vn){
       case 0x34: // Serial Port A (Keyboard) Command
 	if(NUbus_Request == VM_WRITE || NUbus_Request == VM_BYTE_WRITE){
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: Serial Port A Command = 0x%X\n",NUbus_Data.byte[0]);
+	    logmsgf(LT_VCMEM,10,"VCMEM: Serial Port A Command = 0x%X\n",NUbus_Data.byte[0]);
 	  }
 	  // BV tracing beep, starting from uc-hacks:
           // It seems every other write is a register number, and the other is the value.
@@ -343,7 +343,7 @@ void vcmem_clock_pulse(int vn){
 	}
 	if(NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ){
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: Serial Port A Command Read: 0x");
+	    logmsgf(LT_VCMEM,10,"VCMEM: Serial Port A Command Read: 0x");
 	  }
 	  if(keyboard_io_ring_top[vn] != keyboard_io_ring_bottom[vn]){
 	    NUbus_Data.word = 0x5; // We have a key, tx ready
@@ -351,7 +351,7 @@ void vcmem_clock_pulse(int vn){
 	    NUbus_Data.word = 0x4; // No key, tx ready
 	  }
 	  if(NUbus_trace == 1){
-	    printf("%X\n",NUbus_Data.word);
+	    logmsgf(LT_VCMEM,10,"%X\n",NUbus_Data.word);
 	  }
 	  NUbus_acknowledge=1;
 	  return;	
@@ -360,18 +360,18 @@ void vcmem_clock_pulse(int vn){
 
       case 0x38: // Serial Port B (Mouse) Data
 	if(NUbus_Request == VM_READ){
-	  // printf("VCMEM: Serial Port B Data Read: Taking code ");
+	  // logmsgf(LT_VCMEM,,"VCMEM: Serial Port B Data Read: Taking code ");
 	  if(mouse_io_ring_top[vn] != mouse_io_ring_bottom[vn]){
 	    NUbus_Data.word = mouse_io_ring[vn][mouse_io_ring_bottom[vn]];
 	    // writeOct(mouse_io_ring[mouse_io_ring_bottom]);
-	    // printf(" from ");
+	    // logmsgf(LT_VCMEM,," from ");
 	    // writeDec(mouse_io_ring_bottom);
 	    mouse_io_ring_bottom[vn]++;
 	  }else{
-	    // printf("0 from nowhere");
+	    // logmsgf(LT_VCMEM,,"0 from nowhere");
 	    NUbus_Data.word = 0;
 	  }
-	  // printf("\n");
+	  // logmsgf(LT_VCMEM,,"\n");
 	  NUbus_acknowledge=1;
 	  return;
 	}
@@ -380,18 +380,18 @@ void vcmem_clock_pulse(int vn){
       case 0x3C: // Serial Port B (Mouse) Command
 	if(NUbus_Request == VM_WRITE){
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: Serial Port B Command = 0x%X\n",NUbus_Data.byte[0]);
+	    logmsgf(LT_VCMEM,10,"VCMEM: Serial Port B Command = 0x%X\n",NUbus_Data.byte[0]);
 	  }
 	  if(cp_state[vn] == 2){
 	    cp_state[vn] = 3;
-	    printf("MOUSE: INIT\n");
+	    logmsgf(LT_VCMEM,1,"MOUSE: INIT\n");
 	  }
 	  NUbus_acknowledge=1;
 	  return;	
 	}
 	if(NUbus_Request == VM_READ){
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: Serial Port B Command Read\n");
+	    logmsgf(LT_VCMEM,10,"VCMEM: Serial Port B Command Read\n");
 	  }
 	  if(mouse_io_ring_top[vn] != mouse_io_ring_bottom[vn]){
 	    NUbus_Data.word = 1; // We have a key
@@ -415,7 +415,7 @@ void vcmem_clock_pulse(int vn){
 	  // That's 80 bytes per line.
 	  NUbus_Data.word = vcS[vn].SLT[Scanline]; // 0x20000+(80*Scanline);
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: SLT Read: Line 0x%X, returning 0x%X\n",
+	    logmsgf(LT_VCMEM,10,"VCMEM: SLT Read: Line 0x%X, returning 0x%X\n",
 		   Scanline,NUbus_Data.word);
 	  }
 	  NUbus_acknowledge=1;
@@ -424,7 +424,7 @@ void vcmem_clock_pulse(int vn){
 	if(NUbus_Request == VM_WRITE){
 	  uint32_t Scanline = ((NUbus_Address.Addr-0x6000)>>2);
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: SLT Write: Line 0x%X w/ data 0x%X\n",
+	    logmsgf(LT_VCMEM,10,"VCMEM: SLT Write: Line 0x%X w/ data 0x%X\n",
 		   Scanline,NUbus_Data.word);
 	  }
 	  vcS[vn].SLT[Scanline] = NUbus_Data.word;
@@ -438,7 +438,7 @@ void vcmem_clock_pulse(int vn){
 	  Word >>= (8*NUbus_Address.Byte);
 	  NUbus_Data.byte[NUbus_Address.Byte] = (Word&0xFF);
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: SLT Byte Read: Line 0x%X, returning 0x%X\n",
+	    logmsgf(LT_VCMEM,10,"VCMEM: SLT Byte Read: Line 0x%X, returning 0x%X\n",
 		   Scanline,NUbus_Data.byte[NUbus_Address.Byte]);
 	  }
 	  NUbus_acknowledge=1;
@@ -453,7 +453,7 @@ void vcmem_clock_pulse(int vn){
 	  Word <<= (8*NUbus_Address.Byte);
 	  vcS[vn].SLT[Scanline] |= Word;
 	  if(NUbus_trace == 1){
-	    printf("VCMEM: SLT Byte Write: Line 0x%X w/ data 0x%X\n",
+	    logmsgf(LT_VCMEM,10,"VCMEM: SLT Byte Write: Line 0x%X w/ data 0x%X\n",
 		   Scanline,NUbus_Data.byte[NUbus_Address.Byte]);
 	  }
 	  NUbus_acknowledge=1;
@@ -472,7 +472,7 @@ void vcmem_clock_pulse(int vn){
 	      break;
 	      
 	    case 2: // Block Transfer (ILLEGAL)
-	      printf("VCMEM: BLOCK READ REQUESTED\n");
+	      logmsgf(LT_VCMEM,0,"VCMEM: BLOCK READ REQUESTED\n");
 	      ld_die_rq=1;
 	      break;
 	      
@@ -532,7 +532,7 @@ void vcmem_clock_pulse(int vn){
 	      break;
 	      
 	    case 2: // BLOCK TRANSFER (ILLEGAL)
-	      printf("MEM8: BLOCK TRANSFER REQUESTED\n");
+	      logmsgf(LT_VCMEM,0,"VCMEM: BLOCK TRANSFER REQUESTED\n");
 	      ld_die_rq=1;
 	      break;
 	      
@@ -584,11 +584,11 @@ void vcmem_clock_pulse(int vn){
 	  uint32_t rom_addr = (NUbus_Address.Addr-0xffe000)/4;	  
 	  NUbus_Data.word = VCMEM_ROM[rom_addr];
 	  /*
-	  printf("VCM: ROM READ 0x");
+	  logmsgf(LT_VCMEM,,"VCM: ROM READ 0x");
 	  writeH32(NUbus_Address.Addr);
-	  printf(" = ROM ADDR ");
+	  logmsgf(LT_VCMEM,," = ROM ADDR ");
 	  writeH32(rom_addr);
-	  printf("\n");
+	  logmsgf(LT_VCMEM,,"\n");
 	  */
 	  /*
 	  uint8_t prom_addr = (NUbus_Address.Addr-0xfff800)/4;
@@ -615,7 +615,7 @@ void vcmem_clock_pulse(int vn){
 	*/
 	
       default:      
-	printf("VCMEM: Unimplemented address 0x%X\n",NUbus_Address.Addr);
+	logmsgf(LT_VCMEM,0,"VCMEM: Unimplemented address 0x%X\n",NUbus_Address.Addr);
 	ld_die_rq = 1;
       }
     }

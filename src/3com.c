@@ -160,7 +160,7 @@ int ether_init(){
 void ether_tx_pkt(uint8_t *data,uint32_t len){
   ssize_t res = 0;
   if(ether_fd < 0){ return; }
-  // printf("Ether: Sending %d bytes\n",len+4);
+  // logmsgf(LT_3COM,10,"Ether: Sending %d bytes\n",len+4);
   res = write(ether_fd,data-4,len+4);
   if(res < 0){
     perror("ether:write()");
@@ -177,7 +177,7 @@ uint32_t ether_rx_pkt(){
     }
     return(0);
   }
-  // printf("Done! Got %d bytes\n",(int)res);
+  // logmsgf(LT_3COM,10,"Done! Got %d bytes\n",(int)res);
   return(res);
 }
 #endif /* Linux ethertap code */
@@ -212,7 +212,7 @@ void activate_utun(){
       close(utun_fd);
       perror("utun: ioctl()");
     }else{
-      printf("ctl_info: {ctl_id: %ud, ctl_name: %s}\n",ctlInfo.ctl_id, ctlInfo.ctl_name);
+      logmsgf(LT_3COM,10,"ctl_info: {ctl_id: %ud, ctl_name: %s}\n",ctlInfo.ctl_id, ctlInfo.ctl_name);
       
       sc.sc_id = ctlInfo.ctl_id;
       sc.sc_len = sizeof(sc);
@@ -235,10 +235,10 @@ void activate_utun(){
 	sprintf(syscmd,"%s %s netmask 255.255.255.255",syscmd,inet_ntoa(GUEST_IN_ADDR));
 	rv = system(syscmd);
 	if(rv < 0){
-	  printf("UTUN: Interface IP configuration failed, do it yourself\n");
+	  logmsgf(LT_3COM,0,"UTUN: Interface IP configuration failed, do it yourself\n");
 	}
 	// Done
-	printf("UTUN: Initialization completed!\n");
+	logmsgf(LT_3COM,1,"UTUN: Initialization completed!\n");
 	host_iface_state++;
       }
     }
@@ -275,27 +275,27 @@ int ether_init(){
 	    HOST_HW_ADDR.byte[5] = eaddr[5];
 	    HOST_HW_ADDR.byte[6] = 0;
 	    HOST_HW_ADDR.byte[7] = 0;	    
-	    printf("BPF: Host MAC address %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+	    logmsgf(LT_3COM,10,"BPF: Host MAC address %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
 		   HOST_HW_ADDR.byte[0],HOST_HW_ADDR.byte[1],HOST_HW_ADDR.byte[2],
 		   HOST_HW_ADDR.byte[3],HOST_HW_ADDR.byte[4],HOST_HW_ADDR.byte[5]);
 	  }else{
-	    printf("BPF: Non-ethernet link address, len %d data ",addr->ifa_addr->sa_len);
+	    logmsgf(LT_3COM,10,"BPF: Non-ethernet link address, len %d data ",addr->ifa_addr->sa_len);
 	    int y = 0;
 	    while(y < addr->ifa_addr->sa_len){
-	      if(y > 0){ printf(":"); }
-	      printf("%.2hhX",addr->ifa_addr->sa_data[y]);
+	      if(y > 0){ logmsgf(LT_3COM,10,":"); }
+	      logmsgf(LT_3COM,10,"%.2hhX",addr->ifa_addr->sa_data[y]);
 	      y++;
 	    }
-	    printf("\n");
+	    logmsgf(LT_3COM,10,"\n");
 	  }
 	}
 	if(addr->ifa_addr->sa_family == AF_INET){
 	  // IPv4
 	  struct sockaddr_in *ip4addr = (struct sockaddr_in *)addr->ifa_addr;
 	  HOST_IN_ADDR.s_addr = ip4addr->sin_addr.s_addr;
-	  printf("BPF: Host IPv4 address %s\n",inet_ntoa(HOST_IN_ADDR));
+	  logmsgf(LT_3COM,10,"BPF: Host IPv4 address %s\n",inet_ntoa(HOST_IN_ADDR));
 	}
-	// printf("BPF: Addr family %d\n",addr->ifa_addr->sa_family);
+	// logmsgf(LT_3COM,10,"BPF: Addr family %d\n",addr->ifa_addr->sa_family);
       }
       addr = addr->ifa_next;
     }    
@@ -309,11 +309,11 @@ int ether_init(){
     host_iface_state = 0; // Pre-init done
     if(strlen(guest_ip_addr) > 0){
       if(inet_aton(guest_ip_addr,&GUEST_IN_ADDR) != 0){
-	printf("BPF: Guest IP address is %s\n",inet_ntoa(GUEST_IN_ADDR));
+	logmsgf(LT_3COM,10,"BPF: Guest IP address is %s\n",inet_ntoa(GUEST_IN_ADDR));
 	// Initialize tunnel
 	activate_utun();
       }else{
-	printf("UTUN: Unable to parse configured guest IP address, fallback to ARP\n");
+	logmsgf(LT_3COM,0,"UTUN: Unable to parse configured guest IP address, fallback to ARP\n");
       }
     }
   }
@@ -327,7 +327,7 @@ int ether_init(){
     if(fd < 0){
       if(errno == EBUSY){ x++; continue; }
       if(errno == ENOENT){
-	printf("BPF: Unable to find available BPF device (tried %d)\n",x);
+	logmsgf(LT_3COM,0,"BPF: Unable to find available BPF device (tried %d)\n",x);
 	return(0);
       }
       // Some other error happened, bail
@@ -395,7 +395,7 @@ int ether_init(){
   if(flags < 0){ flags = 0; }
   fcntl(fd,F_SETFL,flags|O_NONBLOCK);
 
-  printf("BPF: Operating\n");
+  logmsgf(LT_3COM,1,"BPF: Operating\n");
   return(fd);
 }
 
@@ -427,7 +427,7 @@ void ether_tx_pkt(uint8_t *data,uint32_t len){
 	  if(host_iface_state == 0){
 	    // No - Take it
 	    GUEST_IN_ADDR = *(struct in_addr *)(data+(ETHER_HDR_LEN+14));
-	    printf("BPF: Guest IP address is %s\n",inet_ntoa(GUEST_IN_ADDR));
+	    logmsgf(LT_3COM,10,"BPF: Guest IP address is %s\n",inet_ntoa(GUEST_IN_ADDR));
 	    // Initialize tunnel
 	    activate_utun();
 	  }
@@ -436,12 +436,12 @@ void ether_tx_pkt(uint8_t *data,uint32_t len){
 	    gen_arp_response = 1; // Slight delay enough?
 	  }
 	}else{
-	  printf("PKT: DST IP 0x%.8X vs 0x%.8X\n",(ntohl(*(uint32_t *)(data+(ETHER_HDR_LEN+24)))),ntohl(HOST_IN_ADDR.s_addr));
+	  logmsgf(LT_3COM,10,"PKT: DST IP 0x%.8X vs 0x%.8X\n",(ntohl(*(uint32_t *)(data+(ETHER_HDR_LEN+24)))),ntohl(HOST_IN_ADDR.s_addr));
 	}
 	/*
-	printf("ARP REQUEST: Find %s",inet_ntoa(*(struct in_addr *)(data+(ETHER_HDR_LEN+24))));
-	printf(" for %s",inet_ntoa(*(struct in_addr *)(data+(ETHER_HDR_LEN+14))));
-	printf(" (stored %s)\n",inet_ntoa(GUEST_IN_ADDR));
+	logmsgf(LT_3COM,10,"ARP REQUEST: Find %s",inet_ntoa(*(struct in_addr *)(data+(ETHER_HDR_LEN+24))));
+	logmsgf(LT_3COM,10," for %s",inet_ntoa(*(struct in_addr *)(data+(ETHER_HDR_LEN+14))));
+	logmsgf(LT_3COM,10," (stored %s)\n",inet_ntoa(GUEST_IN_ADDR));
 	*/
       }
     }
@@ -455,7 +455,7 @@ void ether_tx_pkt(uint8_t *data,uint32_t len){
 	 header->ether_dhost[4] == HOST_HW_ADDR.byte[4] &&
 	 header->ether_dhost[5] == HOST_HW_ADDR.byte[5]){
 	// Yes!
-	// printf("3COM: UNICAST PACKET FOR HOST\n");
+	// logmsgf(LT_3COM,10,"3COM: UNICAST PACKET FOR HOST\n");
 	// IPv4?
 	if(ntohs(header->ether_type) == ETHERTYPE_IP){
 	  // Yes, relay it
@@ -472,7 +472,7 @@ void ether_tx_pkt(uint8_t *data,uint32_t len){
   }
 #endif
     
-  // printf("Ether: Sending %d bytes\n",len);
+  // logmsgf(LT_3COM,10,"Ether: Sending %d bytes\n",len);
   res = write(ether_fd,data,len);
   if(res < 0){
     perror("ether:write()");
@@ -545,7 +545,7 @@ uint32_t ether_rx_pkt(){
 	// FCS	
 	// The Lambda doesn't seem to actually check it, can we just leave it zeroes?
 	// Yes!
-	printf("ENET: ARP response generated!\n");
+	logmsgf(LT_3COM,10,"ENET: ARP response generated!\n");
 	return(4+14+28+4); // Return this length (plus 4 byte header)
       }
     }
@@ -560,7 +560,7 @@ uint32_t ether_rx_pkt(){
 	}
       }else{
 	// We got something!
-	// printf("UTUN: Read got %ld bytes\n",res);
+	// logmsgf(LT_3COM,10,"UTUN: Read got %ld bytes\n",res);
 	// This will most likely be IPv4
 	addrfam = ntohl(*((uint32_t *)&tunbuf));
 	if(addrfam == AF_INET){
@@ -585,10 +585,10 @@ uint32_t ether_rx_pkt(){
 	  // Target packet
 	  memcpy(ether_rx_buf+18,tunbuf+4,res-4);
 	  // Tell the host about it
-	  // printf("UTUN: Forwarded\n");
+	  // logmsgf(LT_3COM,10,"UTUN: Forwarded\n");
 	  return(4+14+(res-4)+4);
 	}else{
-	  printf("UTUN: Got %ld bytes Not IPv4 (AF %d), disregarded\n",res,addrfam);
+	  logmsgf(LT_3COM,10,"UTUN: Got %ld bytes Not IPv4 (AF %d), disregarded\n",res,addrfam);
 	}
       }
     }
@@ -601,30 +601,30 @@ uint32_t ether_rx_pkt(){
       }
       return(0);
     }
-    // printf("Ether: read got %d bytes\n",(int)res);
+    // logmsgf(LT_3COM,10,"Ether: read got %d bytes\n",(int)res);
     bpf_buf_length = res;
   }
   // There is a BPF header that must be dealt with
-  // printf("BPF: Header @ %d\n",bpf_buf_offset);
+  // logmsgf(LT_3COM,10,"BPF: Header @ %d\n",bpf_buf_offset);
   bpf_header = (struct bpf_hdr *)(ether_bpf_buf+bpf_buf_offset);
   // Extract packet into ether_rx_buf+4 (to fake the 4-byte header that linux prepends)
-  // printf("BPF: Actual packet %d bytes @ offset %d\n",bpf_header->bh_caplen,bpf_header->bh_hdrlen);
+  // logmsgf(LT_3COM,10,"BPF: Actual packet %d bytes @ offset %d\n",bpf_header->bh_caplen,bpf_header->bh_hdrlen);
   memcpy(ether_rx_buf+4,(uint8_t *)(ether_bpf_buf+bpf_buf_offset+bpf_header->bh_hdrlen),bpf_header->bh_caplen);
-  /* printf("PKT: DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X SRC %.2X:%.2X:%.2X:%.2X:%.2X:%.2X PTYPE %.2X %.2X\n",
+  /* logmsgf(LT_3COM,10,"PKT: DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X SRC %.2X:%.2X:%.2X:%.2X:%.2X:%.2X PTYPE %.2X %.2X\n",
 	 ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9],
 	 ether_rx_buf[10],ether_rx_buf[11],ether_rx_buf[12],ether_rx_buf[13],ether_rx_buf[14],ether_rx_buf[15],
 	 ether_rx_buf[16],ether_rx_buf[17]); */
   // Do we have more packets?
   if((bpf_buf_offset+bpf_header->bh_hdrlen+bpf_header->bh_caplen) < bpf_buf_length){
-    /* printf("BPF: At %d, want %d, continuing buffer processing\n",
+    /* logmsgf(LT_3COM,10,"BPF: At %d, want %d, continuing buffer processing\n",
        (bpf_buf_offset+bpf_header->bh_hdrlen+bpf_header->bh_caplen),bpf_buf_length); */
     bpf_buf_offset += BPF_WORDALIGN(bpf_header->bh_hdrlen+bpf_header->bh_caplen);
   }else{
-    // printf("BPF: All done!\n");
+    // logmsgf(LT_3COM,10,"BPF: All done!\n");
     bpf_buf_offset = 0;
   }
   if(bpf_header->bh_caplen != bpf_header->bh_datalen){
-    /* printf("BPF: LENGTH MISMATCH: Captured %d of %d\n",
+    /* logmsgf(LT_3COM,10,"BPF: LENGTH MISMATCH: Captured %d of %d\n",
        bpf_header->bh_caplen,bpf_header->bh_datalen); */
     return(0); // Throw away packet
   }
@@ -683,7 +683,7 @@ void enet_reset(){
 uint8_t enet_read(uint16_t addr){
   uint16_t subaddr = 0;
   if(enet_trace){
-    printf("3COM: enet_read addr 0x%X\n",addr);
+    logmsgf(LT_3COM,10,"3COM: enet_read addr 0x%X\n",addr);
   }
   switch(addr){
   case 0x0000 ... 0x03FF: // MEBACK
@@ -710,7 +710,7 @@ uint8_t enet_read(uint16_t addr){
     return(ETH_RX_Buffer[1][subaddr]);
     break;
   default:
-    printf("3COM: UNKNOWN READ ADDR 0x%X\n",addr);
+    logmsgf(LT_3COM,0,"3COM: UNKNOWN READ ADDR 0x%X\n",addr);
     ld_die_rq = 1;
   }
   return(0xFF);
@@ -726,18 +726,18 @@ void enet_write(uint16_t addr,uint8_t data){
       ETH_MECSR_MEBACK_Wt.byte[addr&0x03] = data;
       // Process bits
       if(ETH_MECSR_MEBACK_Wt.Reset == 1){
-	printf("3COM: RESET\n");
+	logmsgf(LT_3COM,10,"3COM: RESET\n");
 	enet_reset();
 	return;
       }
       if(ETH_MECSR_MEBACK_Wt.AMSW == 1 && ETH_MECSR_MEBACK.AMSW == 0){
-	printf("3COM: AMSW given to interface: Our address is %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+	logmsgf(LT_3COM,10,"3COM: AMSW given to interface: Our address is %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
 	       ETH_Addr_RAM[0],ETH_Addr_RAM[1],ETH_Addr_RAM[2],ETH_Addr_RAM[3],ETH_Addr_RAM[4],ETH_Addr_RAM[5]);
 	ETH_MECSR_MEBACK.AMSW = 1;
       }
       if(ETH_MECSR_MEBACK_Wt.TBSW == 1 && ETH_MECSR_MEBACK.TBSW == 0){
 	if(enet_trace){
-	  printf("3COM: TBSW given to interface: Packet offset ");
+	  logmsgf(LT_3COM,10,"3COM: TBSW given to interface: Packet offset ");
 	}
 	uint32_t pktoff = (ETH_TX_Buffer[0x00]&0x07);
 	uint32_t pktlen = 0x800;
@@ -745,7 +745,7 @@ void enet_write(uint16_t addr,uint8_t data){
 	pktoff |= ETH_TX_Buffer[0x01];
 	pktlen -= pktoff;
 	if(enet_trace){
-	  printf("%d, length %d\n",pktoff,pktlen);
+	  logmsgf(LT_3COM,10,"%d, length %d\n",pktoff,pktlen);
 	}
 	// Must include our address
 	ETH_TX_Buffer[pktoff+6] = ETH_Addr_RAM[0];
@@ -772,7 +772,7 @@ void enet_write(uint16_t addr,uint8_t data){
     }
     break;
   case 0x0400 ... 0x0403: // Address ROM
-    printf("3COM: WRITING ADDRESS ROM?\n");
+    logmsgf(LT_3COM,10,"3COM: WRITING ADDRESS ROM?\n");
     break;
   case 0x0600 ... 0x0607: // Station Address RAM
     if(ETH_MECSR_MEBACK.AMSW != 0){
@@ -807,7 +807,7 @@ void enet_write(uint16_t addr,uint8_t data){
     ETH_RX_Buffer[1][subaddr] = data;
     break;
   default:
-    printf("3COM: UNKNOWN WRITE ADDR 0x%X\n",addr);
+    logmsgf(LT_3COM,0,"3COM: UNKNOWN WRITE ADDR 0x%X\n",addr);
     ld_die_rq = 1;
   }
 }
@@ -854,7 +854,7 @@ void enet_clock_pulse(){
             if(ETH_MECSR_MEBACK.PA < 6){
               // Yes, so discard this
               drop = 1;
-              /* printf("3COM: Not Broadcast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+              /* logmsgf(LT_3COM,10,"3COM: Not Broadcast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
 		 ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9]); */
             }
           }
@@ -862,7 +862,7 @@ void enet_clock_pulse(){
           // Not multicast/broadcast.
           if(hdr&0x1000 && ETH_MECSR_MEBACK.PA > 2){
             // And not mine, and we are not in promisc.
-            /* printf("3COM: Not mine or multicast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+            /* logmsgf(LT_3COM,10,"3COM: Not mine or multicast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
 	       ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9]); */
             drop = 1;
           }
@@ -877,7 +877,7 @@ void enet_clock_pulse(){
           ETH_RX_Buffer[0][1] = (hdr&0xFF);       
           ETH_MECSR_MEBACK.ABSW = 0; // Now belongs to host
           if(enet_trace){
-            printf("3COM: PACKET STORED IN A\n");
+            logmsgf(LT_3COM,10,"3COM: PACKET STORED IN A\n");
           }
           if(ETH_MECSR_MEBACK.BBSW != 1){
             ETH_MECSR_MEBACK.RBBA = 0; // Packet B is older than this one.
@@ -895,7 +895,7 @@ void enet_clock_pulse(){
             ETH_RX_Buffer[1][0] = ((hdr&0xFF00)>>8);
             ETH_RX_Buffer[1][1] = (hdr&0xFF);
             if(enet_trace){
-              printf("3COM: PACKET STORED IN B\n");
+              logmsgf(LT_3COM,10,"3COM: PACKET STORED IN B\n");
             }
             ETH_MECSR_MEBACK.BBSW = 0; // Now belongs to host
             ETH_MECSR_MEBACK.RBBA = 0; // Packet A is older than this one.
@@ -904,7 +904,7 @@ void enet_clock_pulse(){
 	    }
           }else{
             // Can't do anything with it! Drop it!
-            /* printf("3COM: PA exclusion, packet dropped: PA mode 0x%X and header word 0x%X\n",
+            /* logmsgf(LT_3COM,10,"3COM: PA exclusion, packet dropped: PA mode 0x%X and header word 0x%X\n",
 	       ETH_MECSR_MEBACK.PA,hdr); */
           }
         }       
@@ -924,40 +924,40 @@ int yaml_network_mapping_loop(yaml_parser_t *parser){
   while(mapping_done == 0){
     if(!yaml_parser_parse(parser, &event)){
       if(parser->context != NULL){
-	printf("YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
+	logmsgf(LT_3COM,0,"YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
       }else{
-	printf("YAML: Parser error %d: %s\n", parser->error,parser->problem);
+	logmsgf(LT_3COM,0,"YAML: Parser error %d: %s\n", parser->error,parser->problem);
       }
       return(-1);
     }
     switch(event.type){
     case YAML_NO_EVENT:
-      printf("No event?\n");
+      logmsgf(LT_3COM,0,"No event?\n");
       break;
     case YAML_STREAM_START_EVENT:
     case YAML_DOCUMENT_START_EVENT:
-      // printf("STREAM START\n");
-      printf("Unexpected stream/document start\n");
+      // logmsgf(LT_3COM,10,"STREAM START\n");
+      logmsgf(LT_3COM,0,"Unexpected stream/document start\n");
       break;
     case YAML_STREAM_END_EVENT:
     case YAML_DOCUMENT_END_EVENT:
-      // printf("[End Document]\n");
-      printf("Unexpected stream/document end\n");
+      // logmsgf(LT_3COM,10,"[End Document]\n");
+      logmsgf(LT_3COM,0,"Unexpected stream/document end\n");
       break;
     case YAML_SEQUENCE_START_EVENT:
     case YAML_MAPPING_START_EVENT:
-      printf("Unexpected sequence/mapping start\n");
+      logmsgf(LT_3COM,0,"Unexpected sequence/mapping start\n");
       return(-1);
       break;
     case YAML_SEQUENCE_END_EVENT:
-      printf("Unexpected sequence end\n");
+      logmsgf(LT_3COM,0,"Unexpected sequence end\n");
       return(-1);
       break;
     case YAML_MAPPING_END_EVENT:
       mapping_done = 1;
       break;
     case YAML_ALIAS_EVENT:
-      printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
+      logmsgf(LT_3COM,0,"Unexpected alias (anchor %s)\n", event.data.alias.anchor);
       return(-1);
       break;
     case YAML_SCALAR_EVENT:
@@ -967,13 +967,13 @@ int yaml_network_mapping_loop(yaml_parser_t *parser){
 	strncpy(value,(const char *)event.data.scalar.value,128);
         if(strcmp(key,"interface") == 0){
 	  strncpy(ether_iface,value,30);
-	  printf("Using 3Com Ethernet interface %s\n",ether_iface);	  
+	  logmsgf(LT_3COM,0,"Using 3Com Ethernet interface %s\n",ether_iface);	  
 	  goto value_done;
 	}
 #ifdef USE_UTUN
         if(strcmp(key,"guest-ip") == 0){
-	  strncpy(guest_in_addr,value,31);
-	  printf("Using guest IP address %s\n",guest_in_addr);	  
+	  strncpy(guest_ip_addr,value,31);
+	  logmsgf(LT_3COM,0,"Using guest IP address %s\n",guest_ip_addr);	  
 	  goto value_done;
 	}
 #endif
@@ -991,12 +991,12 @@ int yaml_network_mapping_loop(yaml_parser_t *parser){
 	    ether_addr[x] = val;
 	    x++;
 	  }
-	  printf("Using 3Com Ethernet address %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+	  logmsgf(LT_3COM,0,"Using 3Com Ethernet address %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
 		 ether_addr[0],ether_addr[1],ether_addr[2],ether_addr[3],ether_addr[4],ether_addr[5]);
 	  
 	  goto value_done;
 	}	
-	printf("network: Unknown key %s (value %s)\n",key,value);
+	logmsgf(LT_3COM,0,"network: Unknown key %s (value %s)\n",key,value);
 	return(-1);
 	// Done
       value_done:

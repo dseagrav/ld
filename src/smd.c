@@ -198,7 +198,7 @@ void smd_clock_pulse(){
     switch(SMD_Controller_State){
     case 1: // GO!
       if(SDU_disk_trace){
-        printf("SMD: Controller Go! SMD_IOPB_Base = 0x%X\n",SMD_IOPB_Base.raw);
+        logmsgf(LT_SMD,10,"SMD: Controller Go! SMD_IOPB_Base = 0x%X\n",SMD_IOPB_Base.raw);
       }
       // Set up transfer
       SMD_Xfer_Addr.raw = SMD_IOPB_Base.raw;
@@ -247,23 +247,23 @@ void smd_clock_pulse(){
         SMD_IOPB.byte[23] = tmp;
       }
       if(SDU_disk_trace){
-        printf("SMD: IOPB read completed!\n");
-        printf("Command: 0x%X\n",SMD_IOPB.Command);
-        printf("BUF_WM %X BUF_RM %X RSV %X IOPB_WM %X IOPB_RM %X IOPB_Link %X\n",
+        logmsgf(LT_SMD,10,"SMD: IOPB read completed!\n");
+        logmsgf(LT_SMD,10,"Command: 0x%X\n",SMD_IOPB.Command);
+        logmsgf(LT_SMD,10,"BUF_WM %X BUF_RM %X RSV %X IOPB_WM %X IOPB_RM %X IOPB_Link %X\n",
 	       SMD_IOPB.Buffer_WordMode,SMD_IOPB.Buffer_RelativeMode,SMD_IOPB.Reserve,
 	       SMD_IOPB.IOPB_WordMode,SMD_IOPB.IOPB_RelativeMode,SMD_IOPB.IOPB_Link);
-        printf("Status: 0x%X Error 0x%X Unit 0x%X Head 0x%X\n",
+        logmsgf(LT_SMD,10,"Status: 0x%X Error 0x%X Unit 0x%X Head 0x%X\n",
 	       SMD_IOPB.Status,SMD_IOPB.Error,SMD_IOPB.Unit,SMD_IOPB.Head);
-        printf("Cylinder 0x%X Sector 0x%X SectorCount 0x%X DMA_Burst_Size 0x%X\n",
+        logmsgf(LT_SMD,10,"Cylinder 0x%X Sector 0x%X SectorCount 0x%X DMA_Burst_Size 0x%X\n",
 	       SMD_IOPB.Cylinder,SMD_IOPB.Sector,SMD_IOPB.SectorCount,SMD_IOPB.DMA_Burst_Size);
-        printf("Buffer_Address 0x%X IO_Address 0x%X IO_Segment 0x%X Next_IOPB 0x%X\n",
+        logmsgf(LT_SMD,10,"Buffer_Address 0x%X IO_Address 0x%X IO_Segment 0x%X Next_IOPB 0x%X\n",
 	       SMD_IOPB.Buffer_Address,SMD_IOPB.IO_Address,SMD_IOPB.IO_Segment,SMD_IOPB.Next_IOPB);
       }
       // Halt for investigation of these
-      // if(SMD_IOPB.Unit != 0){ printf("SMD: Not unit 0?\n"); ld_die_rq = 1; }
-      // if(SMD_IOPB.IOPB_Link != 0){ printf("SMD: Link bit set?\n"); ld_die_rq = 1; }
-      if(SMD_IOPB.IOPB_RelativeMode != 0 && SMD_IOPB.Buffer_RelativeMode){ printf("SMD: Relative mode?\n"); ld_die_rq = 1; }
-      // if(SMD_IOPB.Buffer_WordMode == 0){ printf("SMD: Buffer not word mode?\n"); ld_die_rq = 1; }
+      // if(SMD_IOPB.Unit != 0){ logmsgf(LT_SMD,,"SMD: Not unit 0?\n"); ld_die_rq = 1; }
+      // if(SMD_IOPB.IOPB_Link != 0){ logmsgf(LT_SMD,,"SMD: Link bit set?\n"); ld_die_rq = 1; }
+      if(SMD_IOPB.IOPB_RelativeMode != 0 && SMD_IOPB.Buffer_RelativeMode){ logmsgf(LT_SMD,0,"SMD: Relative mode?\n"); ld_die_rq = 1; }
+      // if(SMD_IOPB.Buffer_WordMode == 0){ logmsgf(LT_SMD,,"SMD: Buffer not word mode?\n"); ld_die_rq = 1; }
       // Set up transfer to write status
       SMD_Xfer_Addr.raw = SMD_IOPB_Base.raw+2;
       // Mark IOPB busy
@@ -286,12 +286,12 @@ void smd_clock_pulse(){
         SMD_Controller_State = 30;  // WRITE SETUP
         break;
       case 0x8F: // RESET
-	printf("SMD: DRIVE RESET\n");
+	logmsgf(LT_SMD,10,"SMD: DRIVE RESET\n");
 	SMD_IOPB.Status = 0x80; // OPERATION COMPLETED SUCCESSFULLY
 	SMD_Controller_State = 90;  // FREE IOPB
 	break;
       case 0x87: // INITIALIZE
-	printf("SMD: INITIALIZE\n");
+	logmsgf(LT_SMD,10,"SMD: INITIALIZE\n");
 	// This wrote a UIB into the controller so it could talk to the drive.
 	SMD_Controller_State = 10;
 	// See SMD_UIB for the format.
@@ -301,9 +301,9 @@ void smd_clock_pulse(){
 	break;
       case 0x89: // RESTORE
 	// Seek to track zero
-	printf("SMD: RESTORE\n");
+	logmsgf(LT_SMD,10,"SMD: RESTORE\n");
 	if(disk_fd[SMD_IOPB.Unit] < 0){
-	  printf("SMD: UNIT %d NOT READY ERROR\n",SMD_IOPB.Unit);
+	  logmsgf(LT_SMD,1,"SMD: UNIT %d NOT READY ERROR\n",SMD_IOPB.Unit);
 	  SMD_IOPB.Error = 0x10; // DISK NOT READY
 	  SMD_IOPB.Status = 0x82; // OPERATION FAILED
 	  SMD_Controller_State = 90; // Free IOPB
@@ -316,9 +316,9 @@ void smd_clock_pulse(){
       case 0x83: // VERIFY FORMAT
 	// Not sure what exactly this is supposed to do.
 	// The data appears to be unused, or 2181 doesn't care if I don't touch it.
-	// printf("SMD: VERIFY\n");
+	// logmsgf(LT_SMD,,"SMD: VERIFY\n");
 	if(disk_fd[SMD_IOPB.Unit] < 0){
-	  printf("SMD: UNIT %d NOT READY ERROR\n",SMD_IOPB.Unit);
+	  logmsgf(LT_SMD,1,"SMD: UNIT %d NOT READY ERROR\n",SMD_IOPB.Unit);
 	  SMD_IOPB.Error = 0x10; // DISK NOT READY
 	  SMD_IOPB.Status = 0x82; // OPERATION FAILED
 	  SMD_Controller_State = 90; // Free IOPB
@@ -333,7 +333,7 @@ void smd_clock_pulse(){
       case 0x8A: // SEEK
       case 0x8B: // ZERO SECTOR
       default:
-        printf("SMD: Unknown command 0x%X\n",SMD_IOPB.Command);
+        logmsgf(LT_SMD,0,"SMD: Unknown command 0x%X\n",SMD_IOPB.Command);
         ld_die_rq = 1;
         break;
       }
@@ -364,7 +364,7 @@ void smd_clock_pulse(){
       }
       break;
     case 12: // PARSE UIB
-      printf("SMD: Unit %d: %d tracks per cylinder, %d sectors per track\n",
+      logmsgf(LT_SMD,10,"SMD: Unit %d: %d tracks per cylinder, %d sectors per track\n",
 	     SMD_IOPB.Unit,
 	     SMD_UIB[SMD_IOPB.Unit].Tracks,
 	     SMD_UIB[SMD_IOPB.Unit].Sectors);
@@ -375,7 +375,7 @@ void smd_clock_pulse(){
     case 20: // READ SETUP
       // PC uses 512 byte sectors, Lambda uses 1024
       if(disk_fd[SMD_IOPB.Unit] < 0){
-	printf("SMD: UNIT %d NOT READY ERROR\n",SMD_IOPB.Unit);
+	logmsgf(LT_SMD,1,"SMD: UNIT %d NOT READY ERROR\n",SMD_IOPB.Unit);
 	SMD_IOPB.Error = 0x10; // DISK NOT READY
 	SMD_IOPB.Status = 0x82; // OPERATION FAILED
         SMD_Controller_State = 90; // Free IOPB
@@ -405,7 +405,7 @@ void smd_clock_pulse(){
       seek_res = lseek(disk_fd[SMD_IOPB.Unit],(SMD_Sector*0x400),SEEK_SET);
       if(seek_res < 0){
 	// Seek error!
-	printf("SMD: SEEK ERROR!\n");
+	logmsgf(LT_SMD,1,"SMD: SEEK ERROR!\n");
 	SMD_IOPB.Error = 0x12; // SEEK ERROR
 	SMD_IOPB.Status = 0x82; // OPERATION FAILED
         SMD_Controller_State = 90; // Free IOPB
@@ -426,14 +426,14 @@ void smd_clock_pulse(){
 	  SMD_Controller_State--;
 	}else{
 	  // Fail
-	  printf("SMD: READ ERROR!\n");
+	  logmsgf(LT_SMD,1,"SMD: READ ERROR!\n");
 	  SMD_IOPB.Error = 0x23; // UNCORRECTABLE READ ERROR
 	  SMD_IOPB.Status = 0x82; // OPERATION FAILED
 	  SMD_Controller_State = 90; // Free IOPB
 	}
         break;
       }
-      // printf("SMD: Read completed!\n");
+      // logmsgf(LT_SMD,,"SMD: Read completed!\n");
       switch(SMD_IOPB.Unit){
       case 0:
 	SMD_RStatus.Unit1Ready = 1; break; // Drive is busy
@@ -493,7 +493,7 @@ void smd_clock_pulse(){
       // FALL INTO
     case 26: // Operation completed
       if(SDU_disk_trace){
-        printf("SMD: READ OPERATION COMPLETE: 0x%X bursts, 0x%X sectors of %X completed.\n",
+        logmsgf(LT_SMD,10,"SMD: READ OPERATION COMPLETE: 0x%X bursts, 0x%X sectors of %X completed.\n",
 	       SMD_Burst_Counter,SMD_Sector_Counter,SMD_IOPB.SectorCount);
       }
       SMD_IOPB.Status = 0x80; // OPERATION COMPLETED SUCCESSFULLY
@@ -503,7 +503,7 @@ void smd_clock_pulse(){
     case 30: // WRITE SETUP
       // PC uses 512 byte sectors
       if(disk_fd[SMD_IOPB.Unit] < 0){
-	printf("SMD: UNIT %d NOT READY ERROR\n",SMD_IOPB.Unit);
+	logmsgf(LT_SMD,1,"SMD: UNIT %d NOT READY ERROR\n",SMD_IOPB.Unit);
 	SMD_IOPB.Error = 0x10; // DISK NOT READY
 	SMD_IOPB.Status = 0x82; // OPERATION FAILED
         SMD_Controller_State = 90; // Free IOPB
@@ -539,9 +539,9 @@ void smd_clock_pulse(){
 	  // }
         if(SMD_Xfer_Count >= SMD_Xfer_Size){
           // Done with this burst.
-          // printf("SMD: DMA BURST 0x");
+          // logmsgf(LT_SMD,,"SMD: DMA BURST 0x");
           // writeH32(SMD_Burst_Counter);
-          // printf(" COMPLETE\n");
+          // logmsgf(LT_SMD,," COMPLETE\n");
           SMD_Xfer_Count = 0;
           SMD_Burst_Counter++;
           SMD_Controller_State = 34;
@@ -569,15 +569,15 @@ void smd_clock_pulse(){
       case 3:
 	SMD_RStatus.Unit4Ready = 0; break; // Drive is busy
       }
-      // printf("SMD: Writing 2 blocks at LBA 0x");
+      // logmsgf(LT_SMD,,"SMD: Writing 2 blocks at LBA 0x");
       // writeH32(SMD_LBA);
-      // printf("\n");
+      // logmsgf(LT_SMD,,"\n");
       
       // Reposition the file pointer.
       seek_res = lseek(disk_fd[SMD_IOPB.Unit],(SMD_Sector*0x400),SEEK_SET);
       if(seek_res < 0){
 	// Seek error!
-	printf("SMD: SEEK ERROR!\n");
+	logmsgf(LT_SMD,1,"SMD: SEEK ERROR!\n");
 	SMD_IOPB.Error = 0x12; // SEEK ERROR
 	SMD_IOPB.Status = 0x82; // OPERATION FAILED
         SMD_Controller_State = 90; // Free IOPB
@@ -597,14 +597,14 @@ void smd_clock_pulse(){
 	  SMD_Controller_State--;
 	}else{
 	  // Fail
-	  printf("SMD: WRITE ERROR!\n");
+	  logmsgf(LT_SMD,1,"SMD: WRITE ERROR!\n");
 	  SMD_IOPB.Error = 0x1E; // DRIVE FAULTED
 	  SMD_IOPB.Status = 0x82; // OPERATION FAILED
 	  SMD_Controller_State = 90; // Free IOPB
 	}
         break;
       }
-      // printf("SMD: Write completed!\n");
+      // logmsgf(LT_SMD,,"SMD: Write completed!\n");
       switch(SMD_IOPB.Unit){
       case 0:
 	SMD_RStatus.Unit1Ready = 1; break; // Drive is busy
@@ -620,7 +620,7 @@ void smd_clock_pulse(){
       if(SMD_Sector_Counter >= SMD_IOPB.SectorCount){
         // Done with write command!
         if(SDU_disk_trace){
-          printf("SMD: WRITE OPERATION COMPLETE: 0x%X bursts, 0x%X sectors of %X completed.\n",
+          logmsgf(LT_SMD,10,"SMD: WRITE OPERATION COMPLETE: 0x%X bursts, 0x%X sectors of %X completed.\n",
 		 SMD_Burst_Counter,SMD_Sector_Counter,SMD_IOPB.SectorCount);
         }
 	SMD_IOPB.Status = 0x80; // OPERATION COMPLETED SUCCESSFULLY
@@ -649,7 +649,7 @@ void smd_clock_pulse(){
       // If the operation was a success and the link bit is set, we should follow it here.
       if(SMD_IOPB.Status == 0x80 && SMD_IOPB.IOPB_Link != 0){
 	SMD_IOPB_Base.raw = SMD_IOPB.Next_IOPB;
-	printf("SMD: Following link to 0x%X\n",SMD_IOPB.Next_IOPB);
+	logmsgf(LT_SMD,10,"SMD: Following link to 0x%X\n",SMD_IOPB.Next_IOPB);
 	SMD_Controller_State = 1;
 	break;
       }
@@ -675,14 +675,14 @@ void smd_clock_pulse(){
       // Fall into
     case 93: // SHARED DISK ACCESS MODE - INTERRUPT RX OR END OF OPERATION
       if(SDU_disk_trace){
-        printf("SMD: SHARED DISK ACCESS OP START\n");
-        printf("SDU: share-struct lock 0x");
+        logmsgf(LT_SMD,,"SMD: SHARED DISK ACCESS OP START\n");
+        logmsgf(LT_SMD,,"SDU: share-struct lock 0x");
         writeH32(share_struct->lock);
-        printf(", max_iopbs 0x");
+        logmsgf(LT_SMD,,", max_iopbs 0x");
         writeH32(share_struct->max_iopbs);
-        printf(", current_iopb 0x");
+        logmsgf(LT_SMD,,", current_iopb 0x");
         writeH32(share_struct->current_iopb);
-        printf("\n");
+        logmsgf(LT_SMD,,"\n");
       }
       if(share_struct->lock != 0){ break; } // Busy, come back later
       share_struct->lock = 1; // Take lock
@@ -692,36 +692,36 @@ void smd_clock_pulse(){
     case 94: // SHARED DISK ACCESS MODE - CHECK IOPB LOOP
       while(Active_SIOPB < share_struct->max_iopbs){
         if(SDU_disk_trace){
-          printf("SDU: share-iopb ");
+          logmsgf(LT_SMD,,"SDU: share-iopb ");
           writeDec(Active_SIOPB);
-          printf(" validity 0x");
+          logmsgf(LT_SMD,," validity 0x");
           writeH32(share_struct->valid_siopb[Active_SIOPB]);
-          printf(" siopb_ptr 0x");
+          logmsgf(LT_SMD,," siopb_ptr 0x");
           writeH32(share_struct->siopb_ptr[Active_SIOPB]);
         }
         if(share_struct->valid_siopb[Active_SIOPB] == 1 && share_struct->siopb_ptr[Active_SIOPB] > 0){
           Share_i8086_Addr.raw = share_struct->siopb_ptr[Active_SIOPB];
           Share_Xfer_Addr.raw = ((Share_i8086_Addr.Segment<<4)+Share_i8086_Addr.Offset);
           if(SDU_disk_trace){
-            printf(" (BUS ADDR 0x");
+            logmsgf(LT_SMD,," (BUS ADDR 0x");
             writeH32(Share_Xfer_Addr.raw);
-            printf(", MAPENT 0x");
+            logmsgf(LT_SMD,,", MAPENT 0x");
             writeH32(Share_Xfer_Addr.Page);
-            printf(")");
+            logmsgf(LT_SMD,,")");
           }
           if(MNA_MAP[Share_Xfer_Addr.Page].Enable != 0){
             Share_NB_Addr.Page = MNA_MAP[Share_Xfer_Addr.Page].NUbus_Page;
             Share_NB_Addr.Offset = Share_Xfer_Addr.Offset;
             if(SDU_disk_trace){
-              printf(" (NB ADDR 0x");
+              logmsgf(LT_SMD,," (NB ADDR 0x");
               writeH32(Share_NB_Addr.raw);
-              printf(")");
+              logmsgf(LT_SMD,,")");
             }
             // This address should be in SDU RAM.
             if(Share_NB_Addr.raw < 0xFF000000 || Share_NB_Addr.raw > 0xFF00FFFF){
-              // printf("SHARE IOPB NOT IN SDU RAM?");
+              // logmsgf(LT_SMD,,"SHARE IOPB NOT IN SDU RAM?");
               if(SDU_disk_trace){
-                printf(" (NOT SDU!)\n");
+                logmsgf(LT_SMD,," (NOT SDU!)\n");
               }
               // ld_die_rq = 1;
               // Save this for later
@@ -735,9 +735,9 @@ void smd_clock_pulse(){
               uint32_t runme = *(uint32_t *)&SDU_RAM[SIOPB_Addr];
               uint32_t share_iopb = *(uint32_t *)&SDU_RAM[SIOPB_Addr+12];
               if(SDU_disk_trace){
-                printf(" RUNME = 0x");
+                logmsgf(LT_SMD,," RUNME = 0x");
                 writeH32(runme);
-                printf(", IOPB = 0x");
+                logmsgf(LT_SMD,,", IOPB = 0x");
                 writeH32(share_iopb);
               }
               if(runme == 1){
@@ -750,30 +750,30 @@ void smd_clock_pulse(){
                   SMD_Controller_State = 1; // Make controller go
                   *(uint32_t *)&SDU_RAM[SIOPB_Addr] = 0; // Clear runme
                   if(SDU_disk_trace){
-                    printf("\n");
+                    logmsgf(LT_SMD,,"\n");
                   }
                   break;
                 }else{
-                  printf("NO MAP FOR REAL IOPB?\n");
+                  logmsgf(LT_SMD,,"NO MAP FOR REAL IOPB?\n");
                   ld_die_rq = 1;
                   break;
                 }
               }
             }
           }else{
-            printf("NO MAP FOR SHARE IOPB?\n");
+            logmsgf(LT_SMD,,"NO MAP FOR SHARE IOPB?\n");
             ld_die_rq = 1;
           }
         }
         if(SDU_disk_trace){
-          printf("\n");
+          logmsgf(LT_SMD,,"\n");
         }
         Active_SIOPB++;
       }
       if(Active_SIOPB == share_struct->max_iopbs){
         Active_SIOPB = 0;
         if(SDU_disk_trace){
-          printf("SDU: All shared disk operations complete, controller halting\n");
+          logmsgf(LT_SMD,,"SDU: All shared disk operations complete, controller halting\n");
         }
         share_struct->lock = 0; // Release lock
         SMD_Controller_State = 0;
@@ -783,7 +783,7 @@ void smd_clock_pulse(){
     case 95: // AWAIT SHARE IOPB RUNME WORD
       if(NUbus_acknowledge == 0 && NUbus_error == 0){ break; }
       if(SDU_disk_trace){
-        printf("SDU: Handling runme word\n");
+        logmsgf(LT_SMD,,"SDU: Handling runme word\n");
       }
       SMD_Controller_State++;
       // Fall into
@@ -792,18 +792,18 @@ void smd_clock_pulse(){
         uint32_t runme = NUbus_Data.word;
         if(NUbus_error != 0){
           // Error
-          printf("SDU: Bus error reading slot ");
+          logmsgf(LT_SMD,,"SDU: Bus error reading slot ");
           writeDec(Active_SIOPB);
-          printf(" runme word\n");
+          logmsgf(LT_SMD,," runme word\n");
           ld_die_rq = 1;
         }
         if(SDU_disk_trace){
-          printf("SDU: RUNME = 0x");
+          logmsgf(LT_SMD,,"SDU: RUNME = 0x");
           writeH32(runme);
         }
         if(runme == 1){
           if(SDU_disk_trace){
-            printf(", FETCHING POINTER\n");
+            logmsgf(LT_SMD,,", FETCHING POINTER\n");
           }
           // Read pointer and await result
           nubus_io_request(VM_READ,0xFF,Share_Runme_Addr+12,0);
@@ -817,19 +817,19 @@ void smd_clock_pulse(){
           }
           share_struct->current_iopb = Active_SIOPB;
           if(SDU_disk_trace){
-            printf(", ADVANCING LOOP - NEW ACTIVE SIOPB = ");
+            logmsgf(LT_SMD,,", ADVANCING LOOP - NEW ACTIVE SIOPB = ");
             writeDec(Active_SIOPB);
-            printf("\n");
+            logmsgf(LT_SMD,,"\n");
           }
           SMD_Controller_State = 94;
           break;
         }
       }else{
         // Our request got lost or stolen, repeat it.
-        printf("SDU: Bus cycle stolen by card 0x");
+        logmsgf(LT_SMD,,"SDU: Bus cycle stolen by card 0x");
         writeH32(NUbus_master);
-        if(NUbus_Busy != 0){ printf(" - Awaiting bus free\n"); break; }
-        printf(" - Repeating request\n");
+        if(NUbus_Busy != 0){ logmsgf(LT_SMD,," - Awaiting bus free\n"); break; }
+        logmsgf(LT_SMD,," - Repeating request\n");
         nubus_io_request(VM_READ,0xFF,Share_Runme_Addr,0);
         SMD_Controller_State--;
         break;
@@ -843,16 +843,16 @@ void smd_clock_pulse(){
       if(NUbus_master == 0xFF){
         if(NUbus_error != 0){
           // Error
-          printf("SDU: Bus error reading slot ");
+          logmsgf(LT_SMD,,"SDU: Bus error reading slot ");
           writeDec(Active_SIOPB);
-          printf(" pointer word\n");
+          logmsgf(LT_SMD,," pointer word\n");
           ld_die_rq = 1;
           break;
         }
         if(SDU_disk_trace){
-          printf("SDU: IOPB = 0x");
+          logmsgf(LT_SMD,,"SDU: IOPB = 0x");
           writeH32(NUbus_Data.word);
-          printf("\n");
+          logmsgf(LT_SMD,,"\n");
         }
         Share_i8086_Addr.raw = NUbus_Data.word;
         Share_Xfer_Addr.raw = ((Share_i8086_Addr.Segment<<4)+Share_i8086_Addr.Offset);
@@ -866,7 +866,7 @@ void smd_clock_pulse(){
           break;
         }else{
           if(SDU_disk_trace){
-            printf("NO MAP FOR REAL IOPB?\n");
+            logmsgf(LT_SMD,,"NO MAP FOR REAL IOPB?\n");
           }
           // Advance through loop
           Active_SIOPB++;
@@ -875,9 +875,9 @@ void smd_clock_pulse(){
           }
           share_struct->current_iopb = Active_SIOPB;
           if(SDU_disk_trace){
-            printf("SDU: ADVANCING LOOP - NEW ACTIVE SIOPB = ");
+            logmsgf(LT_SMD,,"SDU: ADVANCING LOOP - NEW ACTIVE SIOPB = ");
             writeDec(Active_SIOPB);
-            printf("\n");
+            logmsgf(LT_SMD,,"\n");
           }
           SMD_Controller_State = 94;
           // ld_die_rq = 1;
@@ -891,7 +891,7 @@ void smd_clock_pulse(){
       break;
       */
     default:
-      printf("SMD: Unknown execution state %d\n",SMD_Controller_State);
+      logmsgf(LT_SMD,0,"SMD: Unknown execution state %d\n",SMD_Controller_State);
       ld_die_rq=1;
     }
   }
@@ -903,7 +903,7 @@ uint8_t smd_read(uint8_t addr){
     return(SMD_RStatus.raw);
     break;
   default:
-    printf("SMD: Unknown read addr %d\n",addr);
+    logmsgf(LT_SMD,0,"SMD: Unknown read addr %d\n",addr);
     ld_die_rq=1;
   }
   return(0);
@@ -931,7 +931,7 @@ void smd_write(uint8_t addr,uint8_t data){
     SMD_IOPB_Base.byte[0] = data;
     break;
   default:
-    printf("SMD: Unknown write addr %d\n",addr);
+    logmsgf(LT_SMD,0,"SMD: Unknown write addr %d\n",addr);
     ld_die_rq=1;
   }
 }
@@ -950,28 +950,28 @@ int yaml_disk_sequence_loop(yaml_parser_t *parser){
   while(sequence_done == 0){
     if(!yaml_parser_parse(parser, &event)){
       if(parser->context != NULL){
-        printf("YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
+        logmsgf(LT_SMD,0,"YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
       }else{
-        printf("YAML: Parser error %d: %s\n", parser->error,parser->problem);
+        logmsgf(LT_SMD,0,"YAML: Parser error %d: %s\n", parser->error,parser->problem);
       }
       return(-1);
     }
     switch(event.type){
     case YAML_NO_EVENT:
-      printf("No event?\n");
+      logmsgf(LT_SMD,0,"No event?\n");
       break;
     case YAML_STREAM_START_EVENT:
     case YAML_DOCUMENT_START_EVENT:
-      // printf("STREAM START\n");
-      printf("Unexpected stream/document start\n");
+      // logmsgf(LT_SMD,,"STREAM START\n");
+      logmsgf(LT_SMD,0,"Unexpected stream/document start\n");
       break;
     case YAML_STREAM_END_EVENT:
     case YAML_DOCUMENT_END_EVENT:
-      // printf("[End Document]\n");
-      printf("Unexpected stream/document end\n");
+      // logmsgf(LT_SMD,,"[End Document]\n");
+      logmsgf(LT_SMD,0,"Unexpected stream/document end\n");
       break;
     case YAML_SEQUENCE_START_EVENT:
-      printf("Unexpected sequence start\n");
+      logmsgf(LT_SMD,0,"Unexpected sequence start\n");
       return(-1);
       break;
     case YAML_MAPPING_START_EVENT:
@@ -988,10 +988,10 @@ int yaml_disk_sequence_loop(yaml_parser_t *parser){
       if(unit > 3){ unit = 3; }
       if(unit < 0){ unit = 0; }
       strncpy(disk_fn[unit],fname,64);
-      printf("Using disk image %s for unit %d\n",disk_fn[unit],unit);
+      logmsgf(LT_SMD,0,"Using disk image %s for unit %d\n",disk_fn[unit],unit);
       break;
     case YAML_ALIAS_EVENT:
-      printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
+      logmsgf(LT_SMD,0,"Unexpected alias (anchor %s)\n", event.data.alias.anchor);
       return(-1);
       break;
     case YAML_SCALAR_EVENT:
@@ -1007,7 +1007,7 @@ int yaml_disk_sequence_loop(yaml_parser_t *parser){
           strncpy(fname,value,64);
           goto value_done;
         }
-        printf("disk: Unknown key %s (value %s)\n",key,value);
+        logmsgf(LT_SMD,0,"disk: Unknown key %s (value %s)\n",key,value);
         return(-1);
         // Done
       value_done:
@@ -1032,50 +1032,50 @@ int yaml_disk_mapping_loop(yaml_parser_t *parser){
   while(mapping_done == 0){
     if(!yaml_parser_parse(parser, &event)){
       if(parser->context != NULL){
-        printf("YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
+        logmsgf(LT_SMD,0,"YAML: Parser error %d: %s %s\n", parser->error,parser->problem,parser->context);
       }else{
-        printf("YAML: Parser error %d: %s\n", parser->error,parser->problem);
+        logmsgf(LT_SMD,0,"YAML: Parser error %d: %s\n", parser->error,parser->problem);
       }
       return(-1);
     }
     switch(event.type){
     case YAML_NO_EVENT:
-      printf("No event?\n");
+      logmsgf(LT_SMD,0,"No event?\n");
       break;
     case YAML_STREAM_START_EVENT:
     case YAML_DOCUMENT_START_EVENT:
-      // printf("STREAM START\n");
-      printf("Unexpected stream/document start\n");
+      // logmsgf(LT_SMD,,"STREAM START\n");
+      logmsgf(LT_SMD,0,"Unexpected stream/document start\n");
       break;
     case YAML_STREAM_END_EVENT:
     case YAML_DOCUMENT_END_EVENT:
-      // printf("[End Document]\n");
-      printf("Unexpected stream/document end\n");
+      // logmsgf(LT_SMD,,"[End Document]\n");
+      logmsgf(LT_SMD,0,"Unexpected stream/document end\n");
       break;
     case YAML_SEQUENCE_START_EVENT:
       if(strcmp(key,"units") == 0){
         rv = yaml_disk_sequence_loop(parser);
         goto seq_done;
       }
-      printf("Unexpected sequence key: %s\n",key);
+      logmsgf(LT_SMD,0,"Unexpected sequence key: %s\n",key);
       return(-1);
     seq_done:
       if(rv < 0){ return(rv); }
       key[0] = 0;
       break;
     case YAML_MAPPING_START_EVENT:
-      printf("Unexpected mapping start\n");
+      logmsgf(LT_SMD,0,"Unexpected mapping start\n");
       return(-1);
       break;
     case YAML_SEQUENCE_END_EVENT:
-      printf("Unexpected sequence end\n");
+      logmsgf(LT_SMD,0,"Unexpected sequence end\n");
       return(-1);
       break;
     case YAML_MAPPING_END_EVENT:
       mapping_done = 1;
       break;
     case YAML_ALIAS_EVENT:
-      printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
+      logmsgf(LT_SMD,0,"Unexpected alias (anchor %s)\n", event.data.alias.anchor);
       return(-1);
       break;
     case YAML_SCALAR_EVENT:
@@ -1092,15 +1092,15 @@ int yaml_disk_mapping_loop(yaml_parser_t *parser){
 	    tok = strtok(NULL," \t\r\n");
 	    if(tok != NULL){
 	      strncpy(disk_fn[dsk],tok,64);
-	      printf("Using disk image %s for unit %d\n",tok,dsk);
+	      logmsgf(LT_SMD,0,"Using disk image %s for unit %d\n",tok,dsk);
 	    }
 	  }else{
-	    printf("Missing disk image name\n");
+	    logmsgf(LT_SMD,0,"Missing disk image name\n");
 	    return(-1);
 	  }
 	  goto value_done;
         }
-        printf("disk: Unknown key %s (value %s)\n",key,value);
+        logmsgf(LT_SMD,0,"disk: Unknown key %s (value %s)\n",key,value);
         return(-1);
         // Done
       value_done:

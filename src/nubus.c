@@ -48,7 +48,7 @@ void nubus_clock_pulse(){
       // because otherwise it would be clobbered if another master
       // grabs the bus first.
       NUbus_error = 1;
-      printf("NUBUS: Timed Out: Master 0x%X Request %o Addr 0x%X (0%o) w/ data 0x%X (0%o) Ack %o\n",
+      logmsgf(LT_NUBUS,1,"NUBUS: Timed Out: Master 0x%X Request %o Addr 0x%X (0%o) w/ data 0x%X (0%o) Ack %o\n",
 	     NUbus_master,NUbus_Request,NUbus_Address.raw,NUbus_Address.raw,
 	     NUbus_Data.word,NUbus_Data.word,NUbus_acknowledge);
     }
@@ -62,7 +62,7 @@ void nubus_io_request(int access, int master, uint32_t address, uint32_t data){
   NUbus_acknowledge = 0;
   // Log
   if(NUbus_trace == 1){
-    printf("NUBUS: Request %o Addr 0x%X (0%o) w/ data 0x%X (0%o) by dev 0x%X\n",
+    logmsgf(LT_NUBUS,10,"NUBUS: Request %o Addr 0x%X (0%o) w/ data 0x%X (0%o) by dev 0x%X\n",
 	   access,address,address,data,data,master);
   }
   // During the PROM run, it expects to read MD one instruction after the read request.

@@ -46,6 +46,38 @@ uint32_t ether_rx_pkt();
 // Mouse interface callback
 void warp_mouse_callback(int cp);
 
+// Logging stuff
+int logmsgf(int type, int level, const char *format, ...);
+
+// Type numbers
+#define LT_SYSTEM 0
+#define LT_SDU 1
+#define LT_LAMBDA 2
+#define LT_NUBUS 3
+#define LT_MULTIBUS 4
+#define LT_RTC 5
+#define LT_VCMEM 6
+#define LT_3COM 7
+#define LT_SMD 8
+#define LT_TAPEMASTER 9
+#define LT_MEM 10
+#define LT_LISP 11
+// If you let MAX_LOGTYPE get above the actual number of initialized types, you're gonna have a bad time
+#define MAX_LOGTYPE 12
+
+static const char *logtype_name[] = { "SYSTEM",
+				      "SDU",
+				      "LAMBDA",
+				      "NUBUS",
+				      "MULTIBUS",
+				      "RTC",
+				      "VCMEM",
+				      "3COM",
+				      "SMD",
+				      "TAPEMASTER",
+				      "MEM",
+				      "LISP" };
+
 // Dump options bits
 #define DUMP_A_MEM 0x00000001
 #define DUMP_M_MEM 0x00000002

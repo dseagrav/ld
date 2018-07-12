@@ -190,7 +190,7 @@ int tapemaster_open_next(){
   
   // If file is open, close it
   if(tape_fd != -1){
-    printf("TM: Closing file %s\n",tape_fn);
+    logmsgf(LT_TAPEMASTER,1,"TM: Closing file %s\n",tape_fn);
     close(tape_fd);
     strncpy(tape_fn,"None",32);
     tape_fd = -1;
@@ -222,7 +222,7 @@ int tapemaster_open_next(){
       tape_fd = -1;
     }else{
       strncpy(tape_fn,namelist[tape_file_sel]->d_name,32);
-      printf("TM: Opened file %s\n",tape_fn);
+      logmsgf(LT_TAPEMASTER,1,"TM: Opened file %s\n",tape_fn);
       tape_bot = 1;
       tape_eot = 0;
       tape_fm = 0;
@@ -266,7 +266,7 @@ int tape_space_block(){
     tape_error = 0x09; // Unexpected EOT
     return(0);
   }
-  printf("TAPE: SPACE-BLOCK: Reclen %d\n",reclen);
+  logmsgf(LT_TAPEMASTER,10,"TAPE: SPACE-BLOCK: Reclen %d\n",reclen);
   tape_reclen = reclen;
   if(reclen == 0){
     // Found file mark
@@ -297,7 +297,7 @@ int tape_space_block(){
     return(0);
   }
   if(reclen != tape_reclen){
-    printf("TAPE:reclen mismatch: %d vs %d\n",tape_reclen,reclen);
+    logmsgf(LT_TAPEMASTER,0,"TAPE:reclen mismatch: %d vs %d\n",tape_reclen,reclen);
     ld_die_rq = 1;
     return(tape_reclen);
   }
@@ -333,7 +333,7 @@ int tape_backspace_block(){
     tape_error = 0x09; // Unexpected EOT
     return(0);
   }
-  printf("TAPE: BACKSPACE-BLOCK: Reclen %d\n",reclen);
+  logmsgf(LT_TAPEMASTER,10,"TAPE: BACKSPACE-BLOCK: Reclen %d\n",reclen);
   tape_reclen = reclen;
   if(reclen == 0){
     // Found file mark
@@ -364,7 +364,7 @@ int tape_backspace_block(){
     return(0);
   }
   if(reclen != tape_reclen){
-    printf("TAPE:reclen mismatch: %d vs %d\n",tape_reclen,reclen);
+    logmsgf(LT_TAPEMASTER,0,"TAPE:reclen mismatch: %d vs %d\n",tape_reclen,reclen);
     ld_die_rq = 1;
     return(tape_reclen);
   }
@@ -403,7 +403,7 @@ int tape_write(){
     tape_error = 0x09; // Unexpected EOT
     return(0);
   }
-  printf("TAPE: WRITE: Reclen %d\n",tape_reclen);
+  logmsgf(LT_TAPEMASTER,10,"TAPE: WRITE: Reclen %d\n",tape_reclen);
   // Write record
   rv = write(tape_fd,tape_block,tape_reclen);
   if(rv == -1){
@@ -456,7 +456,7 @@ int tape_read(){
     tape_error = 0x09; // Unexpected EOT
     return(0);
   }
-  printf("TAPE: READ: Reclen %d\n",reclen);
+  logmsgf(LT_TAPEMASTER,10,"TAPE: READ: Reclen %d\n",reclen);
   tape_reclen = reclen;
   if(reclen == 0){
     // Found file mark
@@ -494,7 +494,7 @@ int tape_read(){
     return(0);
   }
   if(reclen != tape_reclen){
-    printf("TAPE:reclen mismatch: %d vs %d\n",tape_reclen,reclen);
+    logmsgf(LT_TAPEMASTER,0,"TAPE:reclen mismatch: %d vs %d\n",tape_reclen,reclen);
     ld_die_rq = 1;
     return(tape_reclen);
   }
@@ -505,15 +505,15 @@ int tape_read(){
     // Found EOT
     tape_eot = 1;
     tape_fm = 1;
-    printf("TAPE:Read found EOT\n");
+    logmsgf(LT_TAPEMASTER,10,"TAPE:Read found EOT\n");
   }else{
     if(rv == 4){
       if(next_reclen == 0){
         // Found EOF
         tape_fm = 1;
-        printf("TAPE:Read found EOF\n");
+        logmsgf(LT_TAPEMASTER,10,"TAPE:Read found EOF\n");
       }else{
-        printf("TAPE:next reclen %d, repositioning\n",next_reclen);
+        logmsgf(LT_TAPEMASTER,10,"TAPE:next reclen %d, repositioning\n",next_reclen);
         rv = lseek(tape_fd,-4,SEEK_CUR); // Go back
       }
     }
@@ -552,7 +552,7 @@ int tape_reverse_read(){
     tape_error = 0x09; // Unexpected EOT
     return(0);
   }
-  printf("TAPE: READ: Reclen %d\n",reclen);
+  logmsgf(LT_TAPEMASTER,10,"TAPE: READ: Reclen %d\n",reclen);
   tape_reclen = reclen;
   if(reclen == 0){
     // Found file mark
@@ -607,7 +607,7 @@ int tape_reverse_read(){
     return(0);
   }
   if(reclen != tape_reclen){
-    printf("TAPE:reclen mismatch: %d vs %d\n",tape_reclen,reclen);
+    logmsgf(LT_TAPEMASTER,0,"TAPE:reclen mismatch: %d vs %d\n",tape_reclen,reclen);
     ld_die_rq = 1;
     return(tape_reclen);
   }
@@ -629,12 +629,12 @@ int tape_reverse_read(){
 // Interface functions
 
 void tapemaster_attn(){
-  printf("TM: CHANNEL ATTENTION\n");
+  logmsgf(LT_TAPEMASTER,10,"TM: CHANNEL ATTENTION\n");
   TM_Controller_State = 1;
 }
 
 void tapemaster_reset(){
-  printf("TM: CPU RESET\n");
+  logmsgf(LT_TAPEMASTER,10,"TM: CPU RESET\n");
   TM_Initialized = 0;
 }
 
@@ -646,7 +646,7 @@ void tapemaster_clock_pulse(){
       if(TM_Initialized == 0){
         uint16_t offset=0;
         // Perform initialization
-        printf("TM: Initialization\n");
+        logmsgf(LT_TAPEMASTER,10,"TM: Initialization\n");
         // Load pointer into xfer addr
 	TM_MB_Addr.raw = 0x8A;
         TM_Xfer_Addr.byte[0] = multibus_read(TM_MB_Addr);
@@ -660,7 +660,7 @@ void tapemaster_clock_pulse(){
         offset |= multibus_read(TM_MB_Addr);
         TM_Xfer_Addr.raw += offset;
         TM_SCB_Addr = TM_Xfer_Addr.raw; // Save for later
-	printf("TM: SCB Addr = 0x%X\n",TM_SCB_Addr);
+	logmsgf(LT_TAPEMASTER,10,"TM: SCB Addr = 0x%X\n",TM_SCB_Addr);
 	// Obtain SCB
         TM_Controller_State = 2;
       }else{
@@ -673,7 +673,7 @@ void tapemaster_clock_pulse(){
       // Verify check byte
       TM_Xfer_Buffer[0] = multibus_read(TM_Xfer_Addr);
       if(TM_Xfer_Buffer[0] != 0x03){
-	printf("TM: SCB Check Byte was 0x%X instead of 0x03\n",TM_Xfer_Buffer[0]);
+	logmsgf(LT_TAPEMASTER,0,"TM: SCB Check Byte was 0x%X instead of 0x03\n",TM_Xfer_Buffer[0]);
 	TM_Controller_State = 0; // Die
 	ld_die_rq = 1;
 	break;
@@ -695,7 +695,7 @@ void tapemaster_clock_pulse(){
 	TM_CCB_Addr = seg;
 	TM_CCB_Addr <<= 4;
 	TM_CCB_Addr += off;
-        printf("TM: CCB Addr = 0x%X\n",TM_CCB_Addr);
+        logmsgf(LT_TAPEMASTER,10,"TM: CCB Addr = 0x%X\n",TM_CCB_Addr);
         TM_Xfer_Addr.raw = TM_CCB_Addr; // Fetch CCB
         TM_Controller_State = 8; // Go on
       }
@@ -710,7 +710,7 @@ void tapemaster_clock_pulse(){
 	  TM_Xfer_Addr.raw--;
 	  break; // Retry
 	}
-	printf("TM: Gate Addr = 0x%X\n",TM_Xfer_Addr.raw);
+	logmsgf(LT_TAPEMASTER,10,"TM: Gate Addr = 0x%X\n",TM_Xfer_Addr.raw);
 	TM_Xfer_Addr.raw++;
 	ptr[0] = multibus_read(TM_Xfer_Addr); TM_Xfer_Addr.raw++;
         ptr[1] = multibus_read(TM_Xfer_Addr); TM_Xfer_Addr.raw++;
@@ -721,7 +721,7 @@ void tapemaster_clock_pulse(){
 	TM_PB_Addr = seg;
 	TM_PB_Addr <<= 4;
 	TM_PB_Addr += off;
-        printf("TM: PB Addr 0x%X\n",TM_PB_Addr);
+        logmsgf(LT_TAPEMASTER,10,"TM: PB Addr 0x%X\n",TM_PB_Addr);
 	TM_Controller_State = 14;
       }
       // Fall into...
@@ -730,7 +730,7 @@ void tapemaster_clock_pulse(){
       if(TM_Initialized == 0){
         TM_Initialized = 1;
         TM_Controller_State = 95;
-        printf("TM: Initialization completed! Opening gate\n");
+        logmsgf(LT_TAPEMASTER,10,"TM: Initialization completed! Opening gate\n");
         break;
       }
       // Read the Parameter Block
@@ -770,7 +770,7 @@ void tapemaster_clock_pulse(){
         break;
       }
       // Read completed!
-      printf("TM: PB OBTAINED!\n");
+      logmsgf(LT_TAPEMASTER,10,"TM: PB OBTAINED!\n");
       // Set up to write COMMAND STATUS byte
       // If we are a BLOCK MOVE, we have a different PB and should skip this.
       if(TM_PB.Command == 0x80){
@@ -789,14 +789,14 @@ void tapemaster_clock_pulse(){
       TM_PB.Tape.CD_Status.Error = 0;
       switch(TM_PB.Command){
       case 0x00: // Configure
-        printf("TM: CONFIGURE command\n");
+        logmsgf(LT_TAPEMASTER,10,"TM: CONFIGURE command\n");
         // Perform housecleaning
         TM_PB.Tape.Return_Count = 0xFFFF; // Amount of buffer available
         TM_Controller_State = 85;
         break;
 
       case 0x28: // Drive Status
-        printf("TM: DRIVE STATUS command\n");
+        logmsgf(LT_TAPEMASTER,10,"TM: DRIVE STATUS command\n");
         TM_PB.Tape.DR_Status.raw = 0;
 	if(tape_fd > -1){
 	  TM_PB.Tape.DR_Status.Ready = 1;
@@ -811,14 +811,14 @@ void tapemaster_clock_pulse(){
 	{
 	  uint16_t seg,off;	  
 	  // Read a block and transfer to system
-	  printf("TM: DIRECT READ command\n");
+	  logmsgf(LT_TAPEMASTER,10,"TM: DIRECT READ command\n");
 	  seg = TM_PB.Tape.Addr_Pointer.Base;
 	  off = TM_PB.Tape.Addr_Pointer.Offset;
 	  TM_Xfer_Addr.raw = seg;
 	  TM_Xfer_Addr.raw <<= 4;
 	  TM_Xfer_Addr.raw += off;
-	  printf("TM: Xfer Addr = 0x%X\n",TM_Xfer_Addr.raw);
-	  printf("TM: Buffer Size = %d\n",TM_PB.Tape.Buffer_Size);
+	  logmsgf(LT_TAPEMASTER,10,"TM: Xfer Addr = 0x%X\n",TM_Xfer_Addr.raw);
+	  logmsgf(LT_TAPEMASTER,10,"TM: Buffer Size = %d\n",TM_PB.Tape.Buffer_Size);
 	  TM_Xfer_Count = 0;
 	  TM_Xfer_Index = 0;
 	  TM_Controller_State = 30;
@@ -829,14 +829,14 @@ void tapemaster_clock_pulse(){
 	{
 	  uint16_t seg,off;	  
 	  // Write block to tape
-	  printf("TM: DIRECT WRITE command\n");
+	  logmsgf(LT_TAPEMASTER,10,"TM: DIRECT WRITE command\n");
 	  seg = TM_PB.Tape.Addr_Pointer.Base;
 	  off = TM_PB.Tape.Addr_Pointer.Offset;
 	  TM_Xfer_Addr.raw = seg;
 	  TM_Xfer_Addr.raw <<= 4;
 	  TM_Xfer_Addr.raw += off;
-	  printf("TM: Xfer Addr = 0x%X\n",TM_Xfer_Addr.raw);
-	  printf("TM: Buffer Size = %d\n",TM_PB.Tape.Buffer_Size);
+	  logmsgf(LT_TAPEMASTER,10,"TM: Xfer Addr = 0x%X\n",TM_Xfer_Addr.raw);
+	  logmsgf(LT_TAPEMASTER,10,"TM: Buffer Size = %d\n",TM_PB.Tape.Buffer_Size);
 	  TM_Xfer_Count = 0;
 	  TM_Xfer_Index = 0;
 	  tape_reclen = TM_PB.Tape.Buffer_Size;
@@ -845,7 +845,7 @@ void tapemaster_clock_pulse(){
 	break;
 
       case 0x34: // Rewind
-        printf("TM: REWIND command\n");
+        logmsgf(LT_TAPEMASTER,10,"TM: REWIND command\n");
 	if(tape_fd > -1){
 	  size_t rv;
 	  rv = lseek(tape_fd,0,SEEK_SET);
@@ -871,7 +871,7 @@ void tapemaster_clock_pulse(){
         break;
 
       case 0x40: // Write File Mark
-        printf("TM: WRITE FILE MARK command\n");
+        logmsgf(LT_TAPEMASTER,10,"TM: WRITE FILE MARK command\n");
         if(tape_fd > -1){
           ssize_t rv;
 	  tape_reclen = 0;
@@ -893,7 +893,7 @@ void tapemaster_clock_pulse(){
         break;
 
       case 0x44: // Search File Mark
-	printf("TM: SEARCH FILE MARK command\n");
+	logmsgf(LT_TAPEMASTER,10,"TM: SEARCH FILE MARK command\n");
 	TM_Controller_State = 35;
 	break;
 
@@ -902,7 +902,7 @@ void tapemaster_clock_pulse(){
 	// File marks count as a block
 	{
 	  uint16_t Actual_Records = 0;
-	  printf("TM: SPACE command, %d records\n",TM_PB.Tape.Records);
+	  logmsgf(LT_TAPEMASTER,10,"TM: SPACE command, %d records\n",TM_PB.Tape.Records);
 	  if(TM_PB.Tape.Control.Reverse){
 	    // Read backward
 	    while(Actual_Records < TM_PB.Tape.Records){
@@ -924,15 +924,15 @@ void tapemaster_clock_pulse(){
       case 0x60: // Streaming Read
 	{
 	  uint16_t seg,off;	  	  
-	  printf("TM: STREAMING READ command\n");
+	  logmsgf(LT_TAPEMASTER,10,"TM: STREAMING READ command\n");
 	  // Each block has a header
 	  seg = TM_PB.Tape.Addr_Pointer.Base;
 	  off = TM_PB.Tape.Addr_Pointer.Offset;
 	  TM_Xfer_Addr.raw = seg;
 	  TM_Xfer_Addr.raw <<= 4;
 	  TM_Xfer_Addr.raw += off;
-	  printf("TM: Xfer Addr = 0x%X\n",TM_Xfer_Addr.raw);
-	  printf("TM: Buffer Size = %d\n",TM_PB.Tape.Buffer_Size);
+	  logmsgf(LT_TAPEMASTER,10,"TM: Xfer Addr = 0x%X\n",TM_Xfer_Addr.raw);
+	  logmsgf(LT_TAPEMASTER,10,"TM: Buffer Size = %d\n",TM_PB.Tape.Buffer_Size);
 	  SB_Header_Addr.raw = TM_Xfer_Addr.raw;
 	  TM_Xfer_Count = 0;
 	  TM_Xfer_Index = 0;	  
@@ -944,14 +944,14 @@ void tapemaster_clock_pulse(){
       case 0x64: // Streaming Write
 	{
 	  uint16_t seg,off;	  
-	  printf("TM: STREAMING WRITE command\n");
+	  logmsgf(LT_TAPEMASTER,10,"TM: STREAMING WRITE command\n");
 	  seg = TM_PB.Tape.Addr_Pointer.Base;
 	  off = TM_PB.Tape.Addr_Pointer.Offset;
 	  TM_Xfer_Addr.raw = seg;
 	  TM_Xfer_Addr.raw <<= 4;
 	  TM_Xfer_Addr.raw += off;
-	  printf("TM: Xfer Addr = 0x%X\n",TM_Xfer_Addr.raw);
-	  printf("TM: Buffer Size = %d\n",TM_PB.Tape.Buffer_Size);
+	  logmsgf(LT_TAPEMASTER,10,"TM: Xfer Addr = 0x%X\n",TM_Xfer_Addr.raw);
+	  logmsgf(LT_TAPEMASTER,10,"TM: Buffer Size = %d\n",TM_PB.Tape.Buffer_Size);
           SB_Header_Addr.raw = TM_Xfer_Addr.raw;
 	  TM_Xfer_Count = 0;
 	  TM_Xfer_Index = 0;
@@ -966,7 +966,7 @@ void tapemaster_clock_pulse(){
 	{
 	  uint16_t Actual_Records = 0;
 	  int reclen = 0;
-	  printf("TM: SPACE FILE MARK command, %d blocks\n",TM_PB.Tape.Records);
+	  logmsgf(LT_TAPEMASTER,10,"TM: SPACE FILE MARK command, %d blocks\n",TM_PB.Tape.Records);
 	  if(TM_PB.Tape.Control.Reverse){
 	    // Read backward
 	    while(Actual_Records < TM_PB.Tape.Records){
@@ -988,7 +988,7 @@ void tapemaster_clock_pulse(){
 	break;
 	
       case 0x90: // Drive Reset
-        printf("TM: DRIVE RESET command\n");
+        logmsgf(LT_TAPEMASTER,10,"TM: DRIVE RESET command\n");
         TM_PB.Tape.DR_Status.raw = 0;
 	if(tape_fd > -1){
 	  TM_PB.Tape.DR_Status.Ready = 1;
@@ -1019,7 +1019,7 @@ void tapemaster_clock_pulse(){
       case 0x94: // Search Multiple File Marks
       case 0x9C: // Clear Interrupt
       default:
-        printf("TM: Unknown Command 0x%X\n",TM_PB.Command);
+        logmsgf(LT_TAPEMASTER,0,"TM: Unknown Command 0x%X\n",TM_PB.Command);
         TM_Controller_State = 0;
         ld_die_rq = 1;
       }
@@ -1030,7 +1030,7 @@ void tapemaster_clock_pulse(){
 	int x = 1;
 	TM_SB_Header.word[0] = multibus_word_read(TM_Xfer_Addr);
 	if(TM_SB_Header.Ready != 1){ break; }
-	printf("TM: Block Gate Open: 0x%X\n",TM_SB_Header.word[0]);
+	logmsgf(LT_TAPEMASTER,10,"TM: Block Gate Open: 0x%X\n",TM_SB_Header.word[0]);
 	TM_Xfer_Addr.raw += 2;
 	while(x < 4){
 	  TM_SB_Header.word[x] = multibus_word_read(TM_Xfer_Addr);	  
@@ -1057,7 +1057,7 @@ void tapemaster_clock_pulse(){
 	}
 	if(reclen == 0){
 	  // Something happened
-	  printf("TM: Something happened\n");
+	  logmsgf(LT_TAPEMASTER,1,"TM: Something happened\n");
 	  TM_PB.Tape.DR_Status.raw = 0;
 	  TM_PB.Tape.DR_Status.Ready = 1;
 	  TM_PB.Tape.DR_Status.Load_Point = 0;
@@ -1101,7 +1101,7 @@ void tapemaster_clock_pulse(){
 	TM_Xfer_Index++;
 	break;
       }
-      printf("TM: Block Read Done\n");
+      logmsgf(LT_TAPEMASTER,10,"TM: Block Read Done\n");
       if(TM_PB.Command == 0x60){
 	// Mark block done.
 	TM_SB_Header.Ready = 0;
@@ -1112,15 +1112,15 @@ void tapemaster_clock_pulse(){
 	if(TM_SB_Header.Last_Block != 1){
 	  // No, follow pointer
 	  uint16_t seg,off;	  	  
-	  printf("TM: Next Streaming Read block!\n");
+	  logmsgf(LT_TAPEMASTER,10,"TM: Next Streaming Read block!\n");
 	  // Each block has a header
 	  seg = TM_SB_Header.Pointer.Base;
 	  off = TM_SB_Header.Pointer.Offset;
 	  TM_Xfer_Addr.raw = seg;
 	  TM_Xfer_Addr.raw <<= 4;
 	  TM_Xfer_Addr.raw += off;
-	  printf("TM: Xfer Addr = 0x%X\n",TM_Xfer_Addr.raw);
-	  printf("TM: Buffer Size = %d\n",TM_PB.Tape.Buffer_Size);
+	  logmsgf(LT_TAPEMASTER,10,"TM: Xfer Addr = 0x%X\n",TM_Xfer_Addr.raw);
+	  logmsgf(LT_TAPEMASTER,10,"TM: Buffer Size = %d\n",TM_PB.Tape.Buffer_Size);
 	  SB_Header_Addr.raw = TM_Xfer_Addr.raw;
 	  TM_Xfer_Count = 0;
 	  TM_Xfer_Index = 0;	  
@@ -1128,7 +1128,7 @@ void tapemaster_clock_pulse(){
 	  break;
 	}
 	// Yes, we are done.
-	printf("TM: Last Streaming Block completed\n");
+	logmsgf(LT_TAPEMASTER,10,"TM: Last Streaming Block completed\n");
       }
       // Update drive status
       TM_PB.Tape.DR_Status.raw = 0;
@@ -1169,7 +1169,7 @@ void tapemaster_clock_pulse(){
 	  }else{
 	    tape_error = 0; // Ensure clobber
 	  }
-          printf("TM: Something happened! DR_Status 0x%X tape_error 0x%X CD_Status.Error = 0x%X\n",TM_PB.Tape.DR_Status.raw,tape_error,TM_PB.Tape.CD_Status.Error);	  
+          logmsgf(LT_TAPEMASTER,1,"TM: Something happened! DR_Status 0x%X tape_error 0x%X CD_Status.Error = 0x%X\n",TM_PB.Tape.DR_Status.raw,tape_error,TM_PB.Tape.CD_Status.Error);	  
 	  // Write back PB	  
 	  TM_Controller_State = 85;
           break;
@@ -1185,10 +1185,10 @@ void tapemaster_clock_pulse(){
         TM_SB_Header.word[0] = multibus_word_read(TM_Xfer_Addr);
 	if(SB_Gate_Wait_Time >= 100){ 
 	  SB_Gate_Wait_Time = 0;
-	  printf("TM: Awaiting Block Gate Open: 0x%X\n",TM_SB_Header.word[0]);
+	  logmsgf(LT_TAPEMASTER,10,"TM: Awaiting Block Gate Open: 0x%X\n",TM_SB_Header.word[0]);
 	}
         if(TM_SB_Header.Ready != 1){ break; }
-        printf("TM: Block Gate Open: 0x%X\n",TM_SB_Header.word[0]);
+        logmsgf(LT_TAPEMASTER,10,"TM: Block Gate Open: 0x%X\n",TM_SB_Header.word[0]);
         TM_Xfer_Addr.raw += 2;
         while(x < 4){
           TM_SB_Header.word[x] = multibus_word_read(TM_Xfer_Addr);
@@ -1218,12 +1218,12 @@ void tapemaster_clock_pulse(){
       }
       // Write the block
       if(TM_PB.Tape.Control.Reverse){
-	printf("TM: Reverse write?\n");
+	logmsgf(LT_TAPEMASTER,0,"TM: Reverse write?\n");
 	ld_die_rq = 1;
       }else{
 	tape_write();
       }      
-      printf("TM: Block Write Done\n");
+      logmsgf(LT_TAPEMASTER,10,"TM: Block Write Done\n");
       if(TM_PB.Command == 0x64){
 	// Streaming
 	// Write block size
@@ -1242,14 +1242,14 @@ void tapemaster_clock_pulse(){
         if(TM_SB_Header.Last_Block != 1 && tape_error == 0){
           // No, follow pointer
           uint16_t seg,off;
-          printf("TM: Next Streaming Write block!\n");
+          logmsgf(LT_TAPEMASTER,10,"TM: Next Streaming Write block!\n");
           // Each block has a header
           seg = TM_SB_Header.Pointer.Base;
           off = TM_SB_Header.Pointer.Offset;
           TM_Xfer_Addr.raw = seg;
           TM_Xfer_Addr.raw <<= 4;
           TM_Xfer_Addr.raw += off;
-          printf("TM: Xfer Addr = 0x%X\n",TM_Xfer_Addr.raw);
+          logmsgf(LT_TAPEMASTER,10,"TM: Xfer Addr = 0x%X\n",TM_Xfer_Addr.raw);
           SB_Header_Addr.raw = TM_Xfer_Addr.raw;
           TM_Xfer_Count = 0;
           TM_Xfer_Index = 0;
@@ -1258,7 +1258,7 @@ void tapemaster_clock_pulse(){
           break;
         }
         // Yes, we are done.
-        printf("TM: Last Streaming Block completed\n");
+        logmsgf(LT_TAPEMASTER,10,"TM: Last Streaming Block completed\n");
       }
       // Update drive status
       TM_PB.Tape.DR_Status.raw = 0;
@@ -1290,7 +1290,7 @@ void tapemaster_clock_pulse(){
       }
       TM_Controller_State++; // Fall into...
     case 87: // Write back PB
-      printf("TM: PB SDU Addr 0x%X = 0x%X\n",TM_Xfer_Addr.raw,TM_PB.byte[TM_Xfer_Index]);
+      logmsgf(LT_TAPEMASTER,10,"TM: PB SDU Addr 0x%X = 0x%X\n",TM_Xfer_Addr.raw,TM_PB.byte[TM_Xfer_Index]);
       multibus_write(TM_Xfer_Addr,TM_PB.byte[TM_Xfer_Index]);
       TM_Xfer_Index++;
       TM_Controller_State = 90; // Go to loop
@@ -1306,19 +1306,19 @@ void tapemaster_clock_pulse(){
       break;
     case 94: // Perform completion actions
       if(TM_PB.Tape.Control.Link != 0){
-        printf("TM: LINK processing not implemented\n");
+        logmsgf(LT_TAPEMASTER,0,"TM: LINK processing not implemented\n");
         TM_Controller_State = 0;
         ld_die_rq = 1;
         break;
       }else{
         if(TM_PB.Tape.Control.Interrupt != 0){
           if(TM_PB.Tape.Control.Mailbox != 0){
-            printf("TM: MAILBOX INTERRUPT processing not implemented\n");
+            logmsgf(LT_TAPEMASTER,0,"TM: MAILBOX INTERRUPT processing not implemented\n");
             TM_Controller_State = 0;
             ld_die_rq = 1;
             break;
           }else{
-            printf("TM: MULTIBUS INTERRUPT\n");
+            logmsgf(LT_TAPEMASTER,10,"TM: MULTIBUS INTERRUPT\n");
 	    multibus_interrupt(2);
           }
         }
@@ -1327,15 +1327,15 @@ void tapemaster_clock_pulse(){
       // Fall into...
     case 95: // Operation Completed - Open the gate!
       TM_Xfer_Addr.raw = TM_CCB_Addr+1;
-      printf("TM: Gate Addr = 0x%X\n",TM_Xfer_Addr.raw);
+      logmsgf(LT_TAPEMASTER,10,"TM: Gate Addr = 0x%X\n",TM_Xfer_Addr.raw);
       multibus_write(TM_Xfer_Addr,0x00);
-      printf("TM: Operation completed, stopping\n");
+      logmsgf(LT_TAPEMASTER,10,"TM: Operation completed, stopping\n");
       TM_Controller_State = 0;
       // multibus_interrupt(2);
       break;
 
     default:
-      printf("TM: Unknown execution state %d\n",TM_Controller_State);
+      logmsgf(LT_TAPEMASTER,0,"TM: Unknown execution state %d\n",TM_Controller_State);
       ld_die_rq=1;
     }
   }
