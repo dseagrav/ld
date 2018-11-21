@@ -101,6 +101,30 @@ uint8_t read86 (uint32_t addr32) {
   return(data);
 }
 
+void dump_hw_state(){
+  int x = 0;
+  uint16_t y = regs.wordregs[regsp];
+  extern uint8_t SDU_RAM[];
+  logmsgf(LT_SDU,0,"DEBUG INST - SDU STATE:\n");
+  logmsgf(LT_SDU,0,"AX: 0x%.4X BX: 0x%.4X CX: 0x%.4X DX: 0x%.4X\n",
+	 regs.wordregs[regax],regs.wordregs[regbx],
+	 regs.wordregs[regcx],regs.wordregs[regdx]);
+  logmsgf(LT_SDU,0,"DS: 0x%.4X SI: 0x%.4X ES: 0x%.4X DI: 0x%.4X\n",
+	 segregs[regds], regs.wordregs[regsi],
+	 segregs[reges], regs.wordregs[regdi]);  
+  logmsgf(LT_SDU,0,"CS: 0x%.4X IP: 0x%.4X\n",
+	 segregs[regcs], ip);
+  logmsgf(LT_SDU,0,"SS: 0x%.4X SP: 0x%.4X BP: 0x%.4X\n",
+	  segregs[regss], regs.wordregs[regsp], regs.wordregs[regbp]);
+  while(x < 0x10){
+    uint16_t val = *(uint16_t *)(SDU_RAM+
+				 (segbase(segregs[regss])+y));
+    logmsgf(LT_SDU,0,"SP+%.2X (%.4X): 0x%.4X\n",x,(segbase(segregs[regss])+y),val);
+    y += 2;
+    x++;	     
+  }
+};
+
 uint16_t readw86 (uint32_t addr32) {
   uint16_t word = 0xFFFF;
   // The SDU's 8088 has an 8-bit BIU, it cannot generate word cycles
@@ -1173,15 +1197,22 @@ uint8_t dolog = 0, didintr = 0;
 uint8_t printops = 0;
 
 void intcall86 (uint8_t intnum) {
+  if(intnum == 3){
+    // DEBUG
+    dump_hw_state();
+  }
   push (makeflagsword() );
   push (segregs[regcs]);
   push (ip);
   segregs[regcs] = getmem16 (0, (uint16_t) intnum * 4 + 2);
   if(dotrace == 1){ 
     logmsgf(LT_SDU,10,"i8088: INTERRUPT %d\n",intnum);
-    logmsgf(LT_SDU,10,"i8088: CS = %.4X\n",segregs[regcs]);
+    logmsgf(LT_SDU,10,"i8088: CS = %.4X ",segregs[regcs]);
   }
   ip = getmem16 (0, (uint16_t) intnum * 4);
+  if(dotrace == 1){
+    logmsgf(LT_SDU,10,"IP = %.4X\n",ip);
+  }
   ifl = 0;
   tf = 0;
 }
