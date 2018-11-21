@@ -865,37 +865,38 @@ void enet_clock_pulse(){
             drop = 1;
           }
         }
-        // Can we put it in A?
-        if(ETH_MECSR_MEBACK.ABSW == 1 && drop == 0){
+	// 3COM STORES PACKET B FIRST!
+        // Can we put it in B?
+        if(ETH_MECSR_MEBACK.BBSW == 1 && drop == 0){
           // yes!
           // Obtain packet
-          memcpy(ETH_RX_Buffer[0]+2,ether_rx_buf+4,pktlen);
+          memcpy(ETH_RX_Buffer[1]+2,ether_rx_buf+4,pktlen);
           // Obtain header
-          ETH_RX_Buffer[0][0] = ((hdr&0xFF00)>>8);
-          ETH_RX_Buffer[0][1] = (hdr&0xFF);       
-          ETH_MECSR_MEBACK.ABSW = 0; // Now belongs to host
-	  logmsgf(LT_3COM,10,"3COM: PACKET STORED IN A\n");
-          if(ETH_MECSR_MEBACK.BBSW != 1){
-            ETH_MECSR_MEBACK.RBBA = 0; // Packet B is older than this one.
+          ETH_RX_Buffer[1][0] = ((hdr&0xFF00)>>8);
+          ETH_RX_Buffer[1][1] = (hdr&0xFF);       
+	  logmsgf(LT_3COM,10,"3COM: PACKET STORED IN B\n");
+          ETH_MECSR_MEBACK.BBSW = 0; // Now belongs to host
+          if(ETH_MECSR_MEBACK.ABSW == 0){
+            ETH_MECSR_MEBACK.RBBA = 0; // Packet A is older than packet B.
           }
-	  if(ETH_MECSR_MEBACK.AINTEN != 0){
-	    logmsgf(LT_3COM,10,"3COM: AINTEN SET, INTERRUPTING\n");
+	  if(ETH_MECSR_MEBACK.BINTEN != 0){
+	    logmsgf(LT_3COM,10,"3COM: BINTEN SET, INTERRUPTING\n");
 	    multibus_interrupt(0);
 	  }
         }else{
-          // No, can we put it in B?
-          if(ETH_MECSR_MEBACK.BBSW == 1 && drop == 0){
+          // No, can we put it in A?
+          if(ETH_MECSR_MEBACK.ABSW == 1 && drop == 0){
             // Yes!
             // Obtain packet
-            memcpy(ETH_RX_Buffer[1]+2,ether_rx_buf+4,pktlen);
+            memcpy(ETH_RX_Buffer[0]+2,ether_rx_buf+4,pktlen);
             // Obtain header
-            ETH_RX_Buffer[1][0] = ((hdr&0xFF00)>>8);
-            ETH_RX_Buffer[1][1] = (hdr&0xFF);
-	    logmsgf(LT_3COM,10,"3COM: PACKET STORED IN B\n");
-            ETH_MECSR_MEBACK.BBSW = 0; // Now belongs to host
-            ETH_MECSR_MEBACK.RBBA = 0; // Packet A is older than this one.
-	    if(ETH_MECSR_MEBACK.BINTEN != 0){
-	      logmsgf(LT_3COM,10,"3COM: BINTEN SET, INTERRUPTING\n");
+            ETH_RX_Buffer[0][0] = ((hdr&0xFF00)>>8);
+            ETH_RX_Buffer[0][1] = (hdr&0xFF);
+	    logmsgf(LT_3COM,10,"3COM: PACKET STORED IN A\n");
+            ETH_MECSR_MEBACK.ABSW = 0; // Now belongs to host
+            ETH_MECSR_MEBACK.RBBA = 1; // Packet B is older than packet A.
+	    if(ETH_MECSR_MEBACK.AINTEN != 0){
+	      logmsgf(LT_3COM,10,"3COM: AINTEN SET, INTERRUPTING\n");
 	      multibus_interrupt(0);
 	    }
           }else{
