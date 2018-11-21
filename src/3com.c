@@ -110,7 +110,6 @@ uint8_t ETH_Addr_RAM[8];
 uint8_t ETH_TX_Buffer[0x800];
 uint8_t ETH_RX_Buffer[2][0x800];
 uint32_t eth_cycle_count;
-int enet_trace=0;
 extern int ld_die_rq;
 
 // Linux tuntap interface
@@ -160,7 +159,7 @@ int ether_init(){
 void ether_tx_pkt(uint8_t *data,uint32_t len){
   ssize_t res = 0;
   if(ether_fd < 0){ return; }
-  // logmsgf(LT_3COM,10,"Ether: Sending %d bytes\n",len+4);
+  logmsgf(LT_3COM,10,"3COM: Sending %d bytes\n",len+4);
   res = write(ether_fd,data-4,len+4);
   if(res < 0){
     perror("ether:write()");
@@ -177,7 +176,7 @@ uint32_t ether_rx_pkt(){
     }
     return(0);
   }
-  // logmsgf(LT_3COM,10,"Done! Got %d bytes\n",(int)res);
+  logmsgf(LT_3COM,10,"3COM: RX got %d bytes\n",(int)res);
   return(res);
 }
 #endif /* Linux ethertap code */
@@ -682,9 +681,7 @@ void enet_reset(){
 
 uint8_t enet_read(uint16_t addr){
   uint16_t subaddr = 0;
-  if(enet_trace){
-    logmsgf(LT_3COM,10,"3COM: enet_read addr 0x%X\n",addr);
-  }
+  // logmsgf(LT_3COM,10,"3COM: enet_read addr 0x%X\n",addr);
   switch(addr){
   case 0x0000 ... 0x03FF: // MEBACK
     return(ETH_MECSR_MEBACK.byte[addr&0x03]);
@@ -736,17 +733,13 @@ void enet_write(uint16_t addr,uint8_t data){
 	ETH_MECSR_MEBACK.AMSW = 1;
       }
       if(ETH_MECSR_MEBACK_Wt.TBSW == 1 && ETH_MECSR_MEBACK.TBSW == 0){
-	if(enet_trace){
-	  logmsgf(LT_3COM,10,"3COM: TBSW given to interface: Packet offset ");
-	}
+	logmsgf(LT_3COM,10,"3COM: TBSW given to interface: Packet offset ");
 	uint32_t pktoff = (ETH_TX_Buffer[0x00]&0x07);
 	uint32_t pktlen = 0x800;
 	pktoff <<= 8;
 	pktoff |= ETH_TX_Buffer[0x01];
 	pktlen -= pktoff;
-	if(enet_trace){
-	  logmsgf(LT_3COM,10,"%d, length %d\n",pktoff,pktlen);
-	}
+	logmsgf(LT_3COM,10,"%d, length %d\n",pktoff,pktlen);
 	// Must include our address
 	ETH_TX_Buffer[pktoff+6] = ETH_Addr_RAM[0];
 	ETH_TX_Buffer[pktoff+7] = ETH_Addr_RAM[1];
@@ -759,10 +752,15 @@ void enet_write(uint16_t addr,uint8_t data){
 	ether_tx_pkt(ETH_TX_Buffer+pktoff,pktlen);
 	ETH_MECSR_MEBACK.TBSW = 0;
 	if(ETH_MECSR_MEBACK.TINTEN != 0){
+	  logmsgf(LT_3COM,10,"3COM: TINTEN SET, INTERRUPTING\n");
 	  multibus_interrupt(0);
 	}
       }
       ETH_MECSR_MEBACK.PA = ETH_MECSR_MEBACK_Wt.PA;
+      ETH_MECSR_MEBACK.BINTEN = ETH_MECSR_MEBACK_Wt.BINTEN;
+      ETH_MECSR_MEBACK.AINTEN = ETH_MECSR_MEBACK_Wt.AINTEN;
+      ETH_MECSR_MEBACK.TINTEN = ETH_MECSR_MEBACK_Wt.TINTEN;
+      ETH_MECSR_MEBACK.JINTEN = ETH_MECSR_MEBACK_Wt.JINTEN;
       // Clobber state
       ETH_MECSR_MEBACK.TBSW = 0; // TB belongs to host
       ETH_MECSR_MEBACK.JAM = 0; // No collision
@@ -854,16 +852,16 @@ void enet_clock_pulse(){
             if(ETH_MECSR_MEBACK.PA < 6){
               // Yes, so discard this
               drop = 1;
-              /* logmsgf(LT_3COM,10,"3COM: Not Broadcast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
-		 ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9]); */
+	      logmsgf(LT_3COM,10,"3COM: DROP PACKET: Not Broadcast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+		 ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9]);
             }
           }
         }else{
           // Not multicast/broadcast.
           if(hdr&0x1000 && ETH_MECSR_MEBACK.PA > 2){
             // And not mine, and we are not in promisc.
-            /* logmsgf(LT_3COM,10,"3COM: Not mine or multicast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
-	       ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9]); */
+            logmsgf(LT_3COM,10,"3COM: DROP PACKET: Not mine or multicast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+	       ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9]);
             drop = 1;
           }
         }
@@ -876,13 +874,12 @@ void enet_clock_pulse(){
           ETH_RX_Buffer[0][0] = ((hdr&0xFF00)>>8);
           ETH_RX_Buffer[0][1] = (hdr&0xFF);       
           ETH_MECSR_MEBACK.ABSW = 0; // Now belongs to host
-          if(enet_trace){
-            logmsgf(LT_3COM,10,"3COM: PACKET STORED IN A\n");
-          }
+	  logmsgf(LT_3COM,10,"3COM: PACKET STORED IN A\n");
           if(ETH_MECSR_MEBACK.BBSW != 1){
             ETH_MECSR_MEBACK.RBBA = 0; // Packet B is older than this one.
           }
 	  if(ETH_MECSR_MEBACK.AINTEN != 0){
+	    logmsgf(LT_3COM,10,"3COM: AINTEN SET, INTERRUPTING\n");
 	    multibus_interrupt(0);
 	  }
         }else{
@@ -894,18 +891,17 @@ void enet_clock_pulse(){
             // Obtain header
             ETH_RX_Buffer[1][0] = ((hdr&0xFF00)>>8);
             ETH_RX_Buffer[1][1] = (hdr&0xFF);
-            if(enet_trace){
-              logmsgf(LT_3COM,10,"3COM: PACKET STORED IN B\n");
-            }
+	    logmsgf(LT_3COM,10,"3COM: PACKET STORED IN B\n");
             ETH_MECSR_MEBACK.BBSW = 0; // Now belongs to host
             ETH_MECSR_MEBACK.RBBA = 0; // Packet A is older than this one.
 	    if(ETH_MECSR_MEBACK.BINTEN != 0){
+	      logmsgf(LT_3COM,10,"3COM: BINTEN SET, INTERRUPTING\n");
 	      multibus_interrupt(0);
 	    }
           }else{
             // Can't do anything with it! Drop it!
-            /* logmsgf(LT_3COM,10,"3COM: PA exclusion, packet dropped: PA mode 0x%X and header word 0x%X\n",
-	       ETH_MECSR_MEBACK.PA,hdr); */
+            logmsgf(LT_3COM,10,"3COM: PA exclusion, packet dropped: PA mode 0x%X and header word 0x%X\n",
+	       ETH_MECSR_MEBACK.PA,hdr);
           }
         }       
       }
