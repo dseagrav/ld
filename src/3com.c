@@ -153,6 +153,7 @@ int ether_init(){
   fcntl(fd,F_SETFL,flags|O_NONBLOCK);
 
   // All done!
+  logmsgf(LT_3COM,10,"3COM: TAP Initialized\n");
   return(fd);
 }
 
