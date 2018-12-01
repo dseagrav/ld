@@ -25,6 +25,9 @@ CMOS.RAM
 RTC.RAM
 # ROM image files
 roms/*
+# Disk and tape image files
+disks/*
+tapes/*
 # The configuration file
 ld.conf
 # Autoconf stuff
