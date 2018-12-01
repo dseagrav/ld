@@ -26,6 +26,14 @@ AS_IF([test "x$enable_config_2x2" = "xyes"], [
 	CFLAGS="$CFLAGS -DCONFIG_2X2"
 	])
 
+# Conditionalize physical keyboard support
+AC_ARG_ENABLE([config_physkbd],
+	[AS_HELP_STRING([--enable-config-physkbd], [Use physical Lambda keyboard @<:@default=no@:>@])])
+
+AS_IF([test "x$enable_config_physkbd" = "xyes"], [
+	CFLAGS="$CFLAGS -DCONFIG_PHYSKBD"
+	])
+
 # Checks for libraries.
 AC_ARG_WITH([SDL1],
 	[AS_HELP_STRING([--with-SDL1],

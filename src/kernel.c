@@ -36,6 +36,7 @@
 #include <time.h>
 #include <errno.h>
 #include <pwd.h>
+#include <termios.h>
 
 // TCP socket
 #include <netinet/in.h>
@@ -108,6 +109,11 @@ int cp_state[2] = { 0,0 };      // 0 = cold, 1 = bootstrap, 2 = lisp, 3 = lisp +
 int debug_log_enable = 0;
 int debug_log_trigger = 0;
 int dump_seq = 0;
+#ifdef CONFIG_PHYSKBD
+char kbd_filename[128] = {"/dev/ttyS0"}; // File name for physical keyboard serial port
+int kbd_fd = -1;                         // File desc for physical keyboard serial port
+speed_t kbd_baudrate = B9600;            // Baud rate for physical keyboard serial port
+#endif
 
 // Whether to honour SDL_QUIT event (generated e.g. by Command-Q on a Mac)
 int quit_on_sdl_quit = 1;
@@ -1305,6 +1311,7 @@ void warp_mouse_callback(int cp){
   if((SDL_GetWindowFlags(SDLWindow)&SDL_WINDOW_MOUSE_FOCUS) == 0){ return; }
   // Otherwise proceed
   mouse_update_inhibit++;
+  if(mouse_update_inhibit > 10){ mouse_update_inhibit = 10; } // Cap this?
   // printf("WARP MOUSE 0x%X,0x%X\n",pS[cp].Amemory[mouse_x_loc[cp]],pS[cp].Amemory[mouse_y_loc[cp]]);
   SDL_WarpMouseInWindow(SDLWindow,(pS[cp].Amemory[mouse_x_loc[cp]]&0xFFFF),(pS[cp].Amemory[mouse_y_loc[cp]]&0xFFFF));
 }
@@ -2282,6 +2289,63 @@ void sducons_write(char data){
   }
 }
 
+#ifdef CONFIG_PHYSKBD
+/* PHYSICAL KEYBOARD INTERFACE */
+void sdu_kbd_init(){
+  int flags;
+  struct termios term;
+  // Obtain FD
+  kbd_fd = open(kbd_filename,O_RDONLY);
+  if(kbd_fd < 0){
+    perror("KBD:open");
+    kbd_fd = -1;
+    return;
+  }
+  // Obtain termios state
+  if(tcgetattr(kbd_fd,&term) < 0){
+    perror("KBD:tcgetattr");
+    kbd_fd = -1;
+    return;
+  }
+  // Make raw
+  cfmakeraw(&term);
+  // Set baud rate
+  cfsetispeed(&term,kbd_baudrate);
+  cfsetospeed(&term,kbd_baudrate);
+  // Make it so
+  if(tcsetattr(kbd_fd,TCSAFLUSH,&term) < 0){
+    perror("KBD:tcsetattr");
+    kbd_fd = -1;
+    return;
+  }
+  // Become nonblocking
+  flags = fcntl(kbd_fd,F_GETFL,0);
+  if(flags < 0){ flags = 0; }
+  fcntl(kbd_fd,F_SETFL,flags|O_NONBLOCK);
+  // Done
+}
+
+void sdu_kbd_clockpulse(){
+  char kbuf[4];
+  int x = 0;
+  ssize_t res = 0;
+  if(kbd_fd < 0){ return; }
+  res = read(kbd_fd,kbuf,3);
+  if(res < 0){
+    if(errno != EAGAIN && errno != EWOULDBLOCK){
+      perror("sdu_kbd:read()");
+      close(kbd_fd);
+      kbd_fd = 0;
+    }
+    return;
+  }
+  while(x < res){
+    put_rx_ring(active_console,kbuf[x]); // Forward byte
+    x++;
+  }
+}
+#endif
+
 #ifdef BURR_BROWN
 // Debug interface initialization
 void debug_init(){
@@ -2898,6 +2962,59 @@ int yaml_lam_mapping_loop(yaml_parser_t *parser){
 	  }
 	  goto value_done;
 	}
+#ifdef CONFIG_PHYSKBD
+	if(strcmp(key,"kb_file") == 0){
+	  strncpy(kbd_filename,value,128);
+	  printf("Using physical keyboard at %s\n",kbd_filename);
+	  goto value_done;
+	}
+	if(strcmp(key,"kb_baud") == 0){
+	  int baudrate = atoi(value);
+	  switch(baudrate){
+	  case 50:
+	    kbd_baudrate = B50; break;
+	  case 75:
+	    kbd_baudrate = B75; break;
+	  case 110:
+	    kbd_baudrate = B110; break;
+	  case 134:
+	    kbd_baudrate = B134; break;
+	  case 150:
+	    kbd_baudrate = B150; break;
+	  case 200:
+	    kbd_baudrate = B200; break;
+	  case 300:
+	    kbd_baudrate = B300; break;
+	  case 600:
+	    kbd_baudrate = B600; break;
+	  case 1200:
+	    kbd_baudrate = B1200; break;
+	  case 1800:
+	    kbd_baudrate = B1800; break;
+	  case 2400:
+	    kbd_baudrate = B2400; break;
+	  case 4800:
+	    kbd_baudrate = B4800; break;
+	  case 9600:
+	    kbd_baudrate = B9600; break;
+	  case 19200:
+	    kbd_baudrate = B19200; break;
+	  case 38400:
+	    kbd_baudrate = B38400; break;
+	  case 57600:
+	    kbd_baudrate = B57600; break;
+	  case 115200:
+	    kbd_baudrate = B115200; break;
+	  case 230400:
+	    kbd_baudrate = B230400; break;	    
+	  default:
+	    printf("Invalid physical keyboard baud rate.\n");
+	    return(-1);
+	  }
+	  printf("Physical keyboard baud rate is %d\n",baudrate);
+	  goto value_done;
+	}
+#endif
 	printf("lam: Unknown key %s (value %s)\n",key,value);
 	return(-1);	
 	// Done
@@ -3838,7 +3955,10 @@ int main(int argc, char *argv[]){
   if(sdu_rotary_switch != 1){
     sdu_cons_init();
   }
-
+#ifdef CONFIG_PHYSKBD
+  sdu_kbd_init();
+#endif
+  
 #ifdef BURR_BROWN
   // Debug init
   debug_init();
@@ -3925,10 +4045,17 @@ int main(int argc, char *argv[]){
 	nubus_cycle(0);
 	x++;
       }
-      // icount++;
+      // Clock input
+#ifdef CONFIG_PHYSKBD
+      if((icount%8333) == 0){
+	sdu_kbd_clockpulse();
+      }
+#endif
     }
     // Redraw display and process input
     sdl_refresh();
+    // Handle physical keyboard IO
+    // sdu_kbd_clockpulse();
     // Plumb SDU console
     if(sdu_rotary_switch != 1){
       sdu_cons_clockpulse();
