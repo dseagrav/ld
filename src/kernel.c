@@ -1537,6 +1537,9 @@ int sdl_init(int width, int height){
   itv.it_value.tv_usec = 100000;
   setitimer(ITIMER_REAL,&itv,NULL);
 
+  // Allow a screen saver to work
+  SDL_EnableScreenSaver();
+
   // Done
   return 0;
 }
