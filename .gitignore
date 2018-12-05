@@ -49,3 +49,4 @@ src/Makefile
 src/config.h.in
 src/config.h
 src/stamp*
+run/**

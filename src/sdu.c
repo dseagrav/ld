@@ -332,10 +332,6 @@ rtc_update_localtime(int force_p)
   rt_sec = t1.tv_sec;
   // If we're not forcing an update, or if it was really recent, skip it.
   if (!force_p && (rt_sec-rtc_last.tv_sec < RTC_UPDATE_DELTA)) {  // random limit
-#if 0 // debug
-    printf("RTC: Not updating localtime (force %d, delta %ld)\n",
-	   force_p, rt_sec-rtc_last.tv_sec);
-#endif
     return;
   }
   // remember when we did it last
@@ -347,23 +343,15 @@ rtc_update_localtime(int force_p)
   // get local time. This is already adjusted for DST.
   struct tm *real_tm = localtime(&rt_sec);
 
-#if 0 //debug
-  printf("RTC: Updating localtime at %d-%02d-%02d %d:%02d:%02d\n",
-	 1900+real_tm->tm_year, real_tm->tm_mon, real_tm->tm_mday,
-	 real_tm->tm_hour, real_tm->tm_min, real_tm->tm_sec);
-#endif
-
   // The RTC on the SDU is a Motorola MC146818.
   // The year is supposed to be 0-99, but lisp will use any 8 bits of data in there.
   // Day of week, date of month, and month are based at 1.
   // If DST is in effect, Lambda expects the clock to be offset one hour.
-#if 1
   // localtime is DST adjusted, so we need to undo it
   if(real_tm != NULL && real_tm->tm_isdst > 0){
     rt_sec -= (60*60); // Back one hour
     real_tm = localtime(&rt_sec);
   }
-#endif
   if(real_tm != NULL){
     // Initialize the fields
     RTC_Counter[RTC_SECONDS] = real_tm->tm_sec;
