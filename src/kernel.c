@@ -2844,11 +2844,31 @@ void parse_config_line(char *line){
     tok = strtok(NULL," \t\r\n");
     if(tok != NULL){
       int sval = atoi(tok);
+#ifdef SDL2
+      // Parse SDL key names (could be implemented for SDL1 separately, standard for SDL2)
+      if (sval == 0) {
+	// SDL key names sometimes have space in them (keypad X, left/right X) so replace _ by ' '
+	char *usc;
+	while ((usc = strchr(tok,'_')) != NULL)
+	  *usc = ' ';
+	// this also finds "0", just in case...
+	sval = SDL_GetScancodeFromName(tok);
+	if (sval == SDL_SCANCODE_UNKNOWN) {
+	  printf("map_key: unknown SDL scancode '%s'\n", tok);
+	  return;
+	}
+      }
+#endif
       tok = strtok(NULL," \t\r\n");
       if(tok != NULL){
 	int dval = strtol(tok,NULL,8);
 	map_key(sval,dval);
+#ifdef SDL2
+	printf("Mapped SDL keycode %d (%s) to Lambda keycode 0%o\n",
+	       sval, SDL_GetScancodeName(sval), dval);
+#else
 	printf("Mapped SDL keycode %d to Lambda keycode 0%o\n",sval,dval);
+#endif
       }else{
 	printf("key_map: Missing octal Lambda key code.\n");
       }
