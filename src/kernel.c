@@ -124,7 +124,8 @@ volatile uint64_t emu_time = 0;
 volatile uint32_t stat_time = 20;
 
 // Framebuffer size
-#define VIDEO_HEIGHT 800
+#define DEFAULT_VIDEO_HEIGHT 800
+#define MAX_VIDEO_HEIGHT 1024 // BV: increase height, but won't work for more than 1024 related to address space layout
 #define VIDEO_WIDTH 1024
 
 // Pixels
@@ -132,7 +133,7 @@ uint32_t pixel_on = 0xFFFFFFFF;
 uint32_t pixel_off = 0x00000000;
 
 // FrameBuffer backup image
-uint32_t FB_Image[2][VIDEO_WIDTH*VIDEO_HEIGHT];
+uint32_t FB_Image[2][VIDEO_WIDTH*MAX_VIDEO_HEIGHT];
 // FrameBuffer Update accumulation
 int u_minh = 0x7fffffff, u_maxh = 0, u_minv = 0x7fffffff, u_maxv = 0;
 // Console switching
@@ -145,7 +146,7 @@ int black_on_white[2] = { 1,1 };               // 1 => white-on-black, 0 => blac
 SDL_Surface *screen;
 SDL_TimerID SDLTimer;
 int video_width = VIDEO_WIDTH;
-int video_height = VIDEO_HEIGHT;
+int video_height = DEFAULT_VIDEO_HEIGHT;
 #endif
 
 #ifdef SDL2
@@ -154,7 +155,10 @@ SDL_Window *SDLWindow;
 SDL_Renderer *SDLRenderer;
 SDL_Texture *SDLTexture;
 SDL_TimerID SDLTimer;
-uint32_t FrameBuffer[VIDEO_HEIGHT*VIDEO_WIDTH];
+uint32_t FrameBuffer[MAX_VIDEO_HEIGHT*VIDEO_WIDTH];
+// current size
+int video_width = VIDEO_WIDTH;
+int video_height = DEFAULT_VIDEO_HEIGHT;
 #endif
 
 // Stringify macros
@@ -1146,7 +1150,7 @@ void kbd_handle_char(int scancode, int down){
       uint32_t *s = FB_Image[active_console];
       int i,j;
       for (i = 0; i < VIDEO_WIDTH; i++) {
-        for (j = 0; j < VIDEO_HEIGHT; j++)
+        for (j = 0; j < MAX_VIDEO_HEIGHT; j++)
           *p++ = *s++;
       }
       // Redraw it
@@ -1331,7 +1335,7 @@ void set_bow_mode(int vn,int mode){
   if(vn == active_console){
     uint32_t *b = FrameBuffer;
     for (i = 0; i < VIDEO_WIDTH; i++) {
-      for (j = 0; j < VIDEO_HEIGHT; j++) {
+      for (j = 0; j < MAX_VIDEO_HEIGHT; j++) {
 	*b = *p = (*p == pixel_off ? pixel_on : pixel_off);
 	p++; b++;
       }
@@ -1343,7 +1347,7 @@ void set_bow_mode(int vn,int mode){
     SDL_RenderPresent(SDLRenderer);
   }else{
     for (i = 0; i < VIDEO_WIDTH; i++) {
-      for (j = 0; j < VIDEO_HEIGHT; j++) {
+      for (j = 0; j < MAX_VIDEO_HEIGHT; j++) {
 	*p = (*p == pixel_off ? pixel_on : pixel_off);
 	p++;
       }
@@ -1490,7 +1494,7 @@ int sdl_init(int width, int height){
   SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");  // make the scaled rendering look smoother.
   SDL_RenderSetLogicalSize(SDLRenderer, width, height);
 
-  printf("XXX wid %d high %d\n", width, height);
+  printf("SDL display width %d height %d\n", width, height);
 
   // And texture
   SDLTexture = SDL_CreateTexture(SDLRenderer,
@@ -1508,12 +1512,12 @@ int sdl_init(int width, int height){
   // Clear stored bitmaps
   uint32_t *p = FB_Image[0];
   for (i = 0; i < VIDEO_WIDTH; i++) {
-    for (j = 0; j < VIDEO_HEIGHT; j++)
+    for (j = 0; j < MAX_VIDEO_HEIGHT; j++)
       *p++ = pixel_off;
   }
   p = FB_Image[1];
   for (i = 0; i < VIDEO_WIDTH; i++) {
-    for (j = 0; j < VIDEO_HEIGHT; j++)
+    for (j = 0; j < MAX_VIDEO_HEIGHT; j++)
       *p++ = pixel_off;
   }
 
@@ -1554,7 +1558,7 @@ void framebuffer_update_word(int vn,uint32_t addr,uint32_t data){
 
   outpos = col+(VIDEO_WIDTH*row);
 
-  if(outpos >= (uint32_t)(VIDEO_WIDTH*VIDEO_HEIGHT)){
+  if(outpos >= (uint32_t)(VIDEO_WIDTH*MAX_VIDEO_HEIGHT)){
     return;
   }
 
@@ -1593,7 +1597,7 @@ void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data){
 
   outpos = col+(VIDEO_WIDTH*row);
 
-  if(outpos >= (uint32_t)(VIDEO_WIDTH*VIDEO_HEIGHT)){
+  if(outpos >= (uint32_t)(VIDEO_WIDTH*MAX_VIDEO_HEIGHT)){
     return;
   }
 
@@ -1633,7 +1637,7 @@ void framebuffer_update_byte(int vn,uint32_t addr,uint8_t data){
 
   outpos = col+(VIDEO_WIDTH*row);
 
-  if(outpos >= (uint32_t)(VIDEO_WIDTH*VIDEO_HEIGHT)){
+  if(outpos >= (uint32_t)(VIDEO_WIDTH*MAX_VIDEO_HEIGHT)){
     return;
   }
 
@@ -2807,6 +2811,21 @@ void parse_config_line(char *line){
       printf("Using A-%o for CP 1 Mouse Wake\n",mouse_wake_loc[1]);
     }
   }
+  if(strcasecmp(tok,"video_height") == 0){
+    tok = strtok(NULL," \t\r\n");
+    if(tok != NULL){
+      int sval = atoi(tok);
+      // 800 is standard, up to 1024 works (without microcode changes)
+      // Use (TV:SET-CONSOLE-SIZE width height) to change the LispM view.
+      if ((sval >= 800) && (sval <= 1024)) {
+	video_height = sval;
+	printf("Using video height %d\n", sval);
+      } else {
+	printf("video_height: unsupported height '%s'\n", tok);
+      }
+    }
+    return;
+  }
   if(strcasecmp(tok,"pixel_on") == 0){
     tok = strtok(NULL," \t\r\n");
     if(tok != NULL){
@@ -3976,7 +3995,7 @@ int main(int argc, char *argv[]){
 
   // SDL display initialization
   if(debug_target_mode < 10){
-    sdl_init(VIDEO_WIDTH,VIDEO_HEIGHT);
+    sdl_init(video_width,video_height);
   }
 
   hw_init();
@@ -3999,7 +4018,7 @@ int main(int argc, char *argv[]){
   */
 
   // SDL display initialization
-  sdl_init(VIDEO_WIDTH,VIDEO_HEIGHT);
+  sdl_init(video_width,video_height);
 
   hw_init();
 #endif

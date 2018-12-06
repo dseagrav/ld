@@ -52,7 +52,7 @@ void vcmem_init(int vn,int slot){
   vcS[vn].MemoryControl.MemCopy = 1;
   int x = 0;
   // Clobber A memory
-  while(x < 1024*128){
+  while(x < FB_SIZE){
     vcS[vn].AMemory[x] = 0;
     x++;
   }
@@ -408,7 +408,7 @@ void vcmem_clock_pulse(int vn){
 
 	// The scanline table is at 0x6000-0x7FFC
 	// Each entry is the offset of the start of that scanline.
-      case 0x6000 ... 0x7FFF:
+      case 0x6000 ... (0x6000+4*(SLT_SIZE)-1):
 	if(NUbus_Request == VM_READ){
 	  uint32_t Scanline = ((NUbus_Address.Addr-0x6000)>>2);
 	  // This is a mono framebuffer, and our resolution is 800 x 1024.
@@ -462,7 +462,7 @@ void vcmem_clock_pulse(int vn){
 	break;
 
 	// Framebuffer is at 0x20000-0x3FFFF
-      case 0x20000 ... 0x3FFFF:
+      case 0x20000 ... 0x20000+FB_SIZE-1:
 	if(NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ){
 	  uint32_t FBAddr = NUbus_Address.Addr-0x20000;
 	  if(NUbus_Request == VM_READ){ // Read four bytes
