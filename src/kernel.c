@@ -1167,12 +1167,6 @@ void kbd_handle_char(int scancode, int down){
   }
 #endif
 
-  /* for now, fold lower case to upper case */
-  /* (because we're ignoring modifiers) */
-  if (sdlchar >= 'a' && sdlchar <= 'z'){
-    sdlchar -= ' ';
-  }
-
   // Obtain keymap entry
   outchar = map[sdlchar];
 
