@@ -2603,6 +2603,8 @@ void map_key(int sval, int dval){
     modmap[sval] = KB_BB_LTOP; break;
   case 0115: // Repeat
     modmap[sval] = KB_BB_REPEAT; break;
+  case 0125: // Caps lock
+    modmap[sval] = KB_BB_CAPSLOCK; break;
   case 0145: // Left Hyper
     modmap[sval] = KB_BB_LHYPER; break;
   case 0155: // Right Top
