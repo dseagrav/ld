@@ -1021,7 +1021,8 @@ void tapemaster_clock_pulse(){
       default:
         logmsgf(LT_TAPEMASTER,0,"TM: Unknown Command 0x%X\n",TM_PB.Command);
         TM_Controller_State = 0;
-        ld_die_rq = 1;
+	// BV: no reason to DIE, for all those known but unimplemented commands
+	// ld_die_rq = 1;
       }
       break;
 
