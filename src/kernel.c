@@ -115,6 +115,174 @@ int kbd_fd = -1;                         // File desc for physical keyboard seri
 speed_t kbd_baudrate = B9600;            // Baud rate for physical keyboard serial port
 #endif
 
+// Lisp machine key codes/names.
+// See SI:KBD-MAKE-NEW-TABLE in SYS:WINDOW;COLD LISP
+// Order by key number to make it easy to index. Some aliases are at the end of the table.
+struct lmkey {
+  char lmkey_num;
+  char *lmkey_name;
+} lm_key_names[] = {
+  { 0, NULL },
+  { 01, "Roman_II" },
+  { 02, "Roman_IV" },
+  { 03, "Mode_Lock" },
+  { 04, NULL },
+  { 05, "Left_Super" },
+  { 06, NULL },
+  { 07, NULL },
+  { 010, NULL },
+  { 011, "Four" },
+  { 012, "R" },
+  { 013, "F" },
+  { 014, "V" },
+  { 015, "Alt_Lock" },
+  { 016, NULL },
+  { 017, "Hand_Right" },
+  { 020, "Left_Control" },
+  { 021, "Colon" },
+  { 022, "Tab" },
+  { 023, "Rubout" },
+  { 024, "Left_Shift" },
+  { 025, "Right_Shift" },
+  { 026, "Right_Control" },
+  { 027, NULL },
+  { 030, "Hold_Output" },
+  { 031, "Eight" },
+  { 032, "I" },
+  { 033, "K" },
+  { 034, "Comma" },
+  { 035, "Right_Greek" },
+  { 036, "Line" },
+  { 037, "Backslash" },
+  { 040, "Terminal" },
+  { 041, NULL },
+  { 042, "Network" },
+  { 043, NULL },
+  { 044, "Left_Greek" },
+  { 045, "Left_Meta" },
+  { 046, "Status" },
+  { 047, "Resume" },
+  { 050, "Clear_Screen" },
+  { 051, "Six" },
+  { 052, "Y" },
+  { 053, "H" },
+  { 054, "N" },
+  { 055, NULL },
+  { 056, NULL },
+  { 057, NULL },
+  { 060, NULL },
+  { 061, "Two" },
+  { 062, "W" },
+  { 063, "S" },
+  { 064, "X" },
+  { 065, "Right_Super" },
+  { 066, NULL },
+  { 067, "Abort" },
+  { 070, NULL },
+  { 071, "Nine" },
+  { 072, "O" },
+  { 073, "L" },
+  { 074, "Period" },
+  { 075, NULL },
+  { 076, NULL },
+  { 077, "Back_Quote" },
+  { 0100, "Macro" },
+  { 0101, "Roman_I" },
+  { 0102, "Roman_III" },
+  { 0103, NULL },
+  { 0104, "Left_Top" },
+  { 0105, NULL },
+  { 0106, "Up_Thumb" },
+  { 0107, "Call" },
+  { 0110, "Clear_Input" },
+  { 0111, "Five" },
+  { 0112, "T" },
+  { 0113, "G" },
+  { 0114, "B" },
+  { 0115, "Repeat" },
+  { 0116, "Help" },
+  { 0117, "Hand_Left" },
+  { 0120, "Quote" },
+  { 0121, "One" },
+  { 0122, "Q" },
+  { 0123, "A" },
+  { 0124, "Z" },
+  { 0125, "Caps_Lock" },
+  { 0126, "Equals" },
+  { 0127, NULL },
+  { 0130, NULL },
+  { 0131, "Minus" },
+  { 0132, "Open_Parenthesis" },
+  { 0133, "Apostrophe" },
+  { 0134, "Space" },
+  { 0135, NULL },
+  { 0136, "Return" },
+  { 0137, "Close_Parenthesis" },
+  { 0140, NULL },
+  { 0141, "System" },
+  { 0142, NULL },
+  { 0143, "Alt_Mode" },
+  { 0144, NULL },
+  { 0145, "Left_Hyper" },
+  { 0146, "}" },
+  { 0147, NULL },
+  { 0150, NULL },
+  { 0151, "Seven" },
+  { 0152, "U" },
+  { 0153, "J" },
+  { 0154, "M" },
+  { 0155, "Right_Top" },
+  { 0156, "End" },
+  { 0157, "Delete" },
+  { 0160, "Overstrike" },
+  { 0161, "Three" },
+  { 0162, "E" },
+  { 0163, "D" },
+  { 0164, "C" },
+  { 0165, "Right_Meta" },
+  { 0166, "{" },
+  { 0167, "Break" },
+  { 0170, "Stop_Output" },
+  { 0171, "Zero" },
+  { 0172, "P" },
+  { 0173, "Semicolon" },
+  { 0174, "Question" },
+  { 0175, "Right_Hyper" },
+  { 0176, "Down_Thumb" },
+  { 0177, NULL },
+  // aliases
+  { 011, "4" },
+  { 021, ":" },
+  { 031, "8" },
+  { 034, "," },
+  { 037, "\\"},
+  { 050, "Page" },
+  { 051, "6" },
+  { 061, "2" },
+  { 071, "9" },
+  { 074, "." },
+  { 077, "`" },
+  { 0100, "Back_Next" },
+  { 0111, "5" },
+  { 0121, "1" },
+  { 0126, "=" },
+  { 0131, "-" },
+  { 0132, "(" },
+  { 0133, "'" },
+  { 0137, ")" },
+  { 0151, "7" },
+  { 0161, "3" },
+  { 0171, "0" },
+  { 0173, ";" },
+  { 0174, "?" },
+  { 0106, "Thumb_Up" },
+  { 0176, "Thumb_Down" },
+  { 0106, "Hand_Up" },
+  { 0176, "Hand_Down" },
+  // end of list
+  { -1, NULL }
+};
+
 // Whether to honour SDL_QUIT event (generated e.g. by Command-Q on a Mac)
 int quit_on_sdl_quit = 1;
 
@@ -287,7 +455,7 @@ void init_sdl_to_keysym_map(void){
   map[SDLK_RETURN] = 0136; // ENTER
   map[SDLK_BACKSPACE] = 0023; // BACKSPACE (MAPS TO RUBOUT)
   map[SDLK_TAB] = 0022; // TAB
-  map[SDLK_ESCAPE] = 0023; // ESC
+  map[SDLK_ESCAPE] = 0143; // ALT MODE
 
   // LMI arrows were shift states?
   // Or maybe it's the HAND keys?
@@ -404,7 +572,7 @@ void init_sdl_to_scancode_map(void){
   map[SDL_SCANCODE_RETURN] = 0136; // ENTER
   map[SDL_SCANCODE_BACKSPACE] = 0023; // BACKSPACE (MAPS TO RUBOUT)
   map[SDL_SCANCODE_TAB] = 0022; // TAB
-  map[SDL_SCANCODE_ESCAPE] = 0023; // ESC
+  map[SDL_SCANCODE_ESCAPE] = 0143; // ALT MODE
 
   // LMI arrows were shift states?
   // Or maybe it's the HAND keys?
@@ -1170,12 +1338,6 @@ void kbd_handle_char(int scancode, int down){
     return;
   }
 #endif
-
-  /* for now, fold lower case to upper case */
-  /* (because we're ignoring modifiers) */
-  if (sdlchar >= 'a' && sdlchar <= 'z'){
-    sdlchar -= ' ';
-  }
 
   // Obtain keymap entry
   outchar = map[sdlchar];
@@ -2607,6 +2769,8 @@ void map_key(int sval, int dval){
     modmap[sval] = KB_BB_LTOP; break;
   case 0115: // Repeat
     modmap[sval] = KB_BB_REPEAT; break;
+  case 0125: // Caps lock
+    modmap[sval] = KB_BB_CAPSLOCK; break;
   case 0145: // Left Hyper
     modmap[sval] = KB_BB_LHYPER; break;
   case 0155: // Right Top
@@ -2638,6 +2802,16 @@ void audio_control(int onoff) {
     toggle_time = real_time;
   }
   state = onoff;
+}
+
+int find_lm_key_named(char *name) {
+  // Given a Lispm key name, find its code
+  int i;
+  for (i = 0; lm_key_names[i].lmkey_num != -1; i++) {
+    if ((lm_key_names[i].lmkey_name != NULL) && (strcasecmp(lm_key_names[i].lmkey_name,name) == 0))
+      return lm_key_names[i].lmkey_num;
+  }
+  return -1;
 }
 
 void parse_config_line(char *line){
@@ -2863,16 +3037,48 @@ void parse_config_line(char *line){
     tok = strtok(NULL," \t\r\n");
     if(tok != NULL){
       int sval = atoi(tok);
+#ifdef SDL2
+      // Parse SDL key names (could be implemented for SDL1 separately, standard for SDL2)
+      if (sval == 0) {
+	// SDL key names sometimes have space in them (keypad X, left/right X) so replace _ by ' '
+	char *usc;
+	while ((usc = strchr(tok,'_')) != NULL)
+	  *usc = ' ';
+	// this also finds "0", just in case...
+	sval = SDL_GetScancodeFromName(tok);
+	if (sval == SDL_SCANCODE_UNKNOWN) {
+	  printf("map_key: unknown SDL scancode '%s'\n", tok);
+	  return;
+	}
+      }
+#endif
       tok = strtok(NULL," \t\r\n");
       if(tok != NULL){
 	int dval = strtol(tok,NULL,8);
+	if (dval == 0) {
+	  // Not a number: try parsing a Lispm key name instead
+	  dval = find_lm_key_named(tok);
+	  if (dval == -1) {
+	    printf("map_key: unknown Lambda key '%s'\n", tok);
+	    return;
+	  }
+	}
 	map_key(sval,dval);
-	printf("Mapped SDL keycode %d to Lambda keycode 0%o\n",sval,dval);
+#ifdef SDL2
+	printf("Mapped SDL keycode %d (%s) to Lambda keycode 0%o (%s)\n",
+	       sval, SDL_GetScancodeName(sval), dval, lm_key_names[dval].lmkey_name);
+#else
+	printf("Mapped SDL keycode %d to Lambda keycode 0%o (%s)\n",sval,dval, lm_key_names[dval].lmkey_name);
+#endif
       }else{
-	printf("key_map: Missing octal Lambda key code.\n");
+	printf("key_map: Missing octal Lambda key code or key name.\n");
       }
     }else{
+#ifdef SDL2
+      printf("key_map: Missing decimal SDL keycode value or key name\n");
+#else
       printf("key_map: Missing decimal SDL keycode value\n");
+#endif
     }
   }
   if(strcasecmp(tok,"log") == 0){
