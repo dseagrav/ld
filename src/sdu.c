@@ -26,6 +26,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
+#include <sys/time.h>
 
 #ifdef HAVE_YAML_H
 #include <yaml.h>
@@ -45,6 +47,8 @@
 /* Motorola MC146818 RTC */
 uint32_t rtc_cycle_count;
 uint32_t rtc_addr; // Address Register
+struct timeval rtc_last;	// last time RTC updated from localtime
+#define RTC_UPDATE_DELTA 10	// min seconds between using localtime
 
 uint8_t RTC_Counter[10];
 // Counter map
@@ -312,12 +316,68 @@ char proc_conf_q_names[sizeof(processor_configuration_qs)/4][64] = {
   "excelan_multibus_map_size"
 };
 
+void
+rtc_update_localtime(int force_p)
+{
+  // RTC initialization
+  // The Lambda expects the RTC to read in local time.
+  struct timeval t1;
+  time_t rt_sec;
+  // Get the time
+  if (gettimeofday(&t1, NULL) < 0) {
+    perror("RTC: gettimeofday");
+    ld_die_rq = 1;
+    return;
+  }
+  rt_sec = t1.tv_sec;
+  // If we're not forcing an update, or if it was really recent, skip it.
+  if (!force_p && (rt_sec-rtc_last.tv_sec < RTC_UPDATE_DELTA)) {  // random limit
+    return;
+  }
+  // remember when we did it last
+  rtc_last.tv_sec = rt_sec;
+  // Round it (we typically fall behind host clock by almost a second, why?)
+  if (t1.tv_usec > 500000)
+    rt_sec++;
+
+  // get local time. This is already adjusted for DST.
+  struct tm *real_tm = localtime(&rt_sec);
+
+  // The RTC on the SDU is a Motorola MC146818.
+  // The year is supposed to be 0-99, but lisp will use any 8 bits of data in there.
+  // Day of week, date of month, and month are based at 1.
+  // If DST is in effect, Lambda expects the clock to be offset one hour.
+  // localtime is DST adjusted, so we need to undo it
+  if(real_tm != NULL && real_tm->tm_isdst > 0){
+    rt_sec -= (60*60); // Back one hour
+    real_tm = localtime(&rt_sec);
+  }
+  if(real_tm != NULL){
+    // Initialize the fields
+    RTC_Counter[RTC_SECONDS] = real_tm->tm_sec;
+    RTC_Counter[RTC_MINUTES] = real_tm->tm_min;
+    RTC_Counter[RTC_HOURS] = real_tm->tm_hour;
+    // Unix: Sun=0; Lispm: Mon=0; RTC: Sun=1
+    RTC_Counter[RTC_DAY_OF_WEEK] = (real_tm->tm_wday+1);
+    RTC_Counter[RTC_DATE_OF_MONTH] = real_tm->tm_mday;
+    // Unix: Jan=0, Lispm/RTC: Jan=1
+    RTC_Counter[RTC_MONTH] = (real_tm->tm_mon+1);
+    RTC_Counter[RTC_YEAR] = real_tm->tm_year;
+  }else{
+    // Default safe date.
+    // Not sure what the correct time was; 7 AM seems like a reasonable before-school time slot.
+    RTC_Counter[RTC_SECONDS] = 0;
+    RTC_Counter[RTC_MINUTES] = 0;
+    RTC_Counter[RTC_HOURS] = 7;
+    RTC_Counter[RTC_DAY_OF_WEEK] = 7;
+    RTC_Counter[RTC_DATE_OF_MONTH] = 7;
+    RTC_Counter[RTC_MONTH] = 3;
+    RTC_Counter[RTC_YEAR] = 92;
+  }
+}
+
 // Functions
 void sdu_init(){
-  // Kernel's RTC time
-  extern uint32_t rtc_sec,rtc_min,rtc_hour;
-  extern uint32_t rtc_dow,rtc_date,rtc_month;
-  extern uint32_t rtc_year;
   // Clobber RAM
   bzero(SDU_RAM,RAM_TOP);
   // Initialize RTC
@@ -328,14 +388,11 @@ void sdu_init(){
   RTC_REGB.Format = 1; // 24 hour format
   RTC_REGB.DST_Enable = 1; // DST Enabled
   rtc_cycle_count = 0;
-  // Read time from kernel, which should have already pulled it from the rtc (or unix)
-  RTC_Counter[RTC_SECONDS] = rtc_sec;
-  RTC_Counter[RTC_MINUTES] = rtc_min;
-  RTC_Counter[RTC_HOURS] = rtc_hour;
-  RTC_Counter[RTC_DAY_OF_WEEK] = rtc_dow;
-  RTC_Counter[RTC_DATE_OF_MONTH] = rtc_date;
-  RTC_Counter[RTC_MONTH] = rtc_month;
-  RTC_Counter[RTC_YEAR] = rtc_year;
+
+  // RTC initialization:
+  // update from localtime
+  rtc_update_localtime(1);
+
   RTC_REGD.Valid_RAM = 1;
   // This stuff is what Lisp puts there
   /*
@@ -1177,7 +1234,15 @@ uint8_t multibus_read(mbAddr addr){
       switch(rtc_addr){
       case 0x00 ... 0x09:
 	if(RTC_REGA.Update_In_Progress == 0){
+	  if (rtc_addr == RTC_SECONDS) // the first index being read (see time:read-rtc-chip)
+	    // maybe update RTC data from localtime
+	    rtc_update_localtime(0);
 	  RTC_Data = RTC_Counter[rtc_addr];
+	  if (RTC_REGB.Format == 0 && rtc_addr == RTC_HOURS) {
+	    // 12h format (but never, normally - see time:set-correct-rtc-modes)
+	    if (RTC_Data > 13)
+	      RTC_Data = (RTC_Data-12) & 0x80;
+	  }
 	}else{
 	  RTC_Data = 0;
 	}
@@ -1491,6 +1556,10 @@ void multibus_write(mbAddr addr,uint8_t data){
       switch(rtc_addr){
       case 0x00 ... 0x09:
 	if(RTC_REGA.Update_In_Progress == 0){
+	  if (RTC_REGB.Format == 0 && rtc_addr == RTC_HOURS) { // 12h format
+	    if (data & 0x80)  // PM
+	      data = (data & ~0x80)+12; // make it 24h
+	  }
 	  RTC_Counter[rtc_addr] = data;
 	}
 	break;
@@ -1821,28 +1890,15 @@ void sdu_clock_pulse(){
       RTC_Counter[RTC_SECONDS]++;
       if(RTC_Counter[RTC_SECONDS] > 59){
 	RTC_Counter[RTC_SECONDS] = 0;
+	// next minute
 	RTC_Counter[RTC_MINUTES]++;
 	if(RTC_Counter[RTC_MINUTES] > 59){
-	  uint8_t Inc_Day=0;
 	  RTC_Counter[RTC_MINUTES] = 0;
+	  // Store hours in 24h form, read depending on Format
 	  RTC_Counter[RTC_HOURS]++;
-	  if(RTC_REGB.Format == 0){
-	    if(RTC_Counter[RTC_HOURS] > 13 && RTC_Counter[RTC_HOURS] < 0x81){ 
-	      // Convert to PM
-	      RTC_Counter[RTC_HOURS] = 0x81;
-	    } 
-	    if(RTC_Counter[RTC_HOURS] > 0x8C){
-	      RTC_Counter[RTC_HOURS] = 1;
-	      Inc_Day = 1;
-	    }
-	  }else{
-	    if(RTC_Counter[RTC_HOURS] > 23){
-	      RTC_Counter[RTC_HOURS] = 0;
-	      Inc_Day = 1;
-	    }
-	  }
-	  if(Inc_Day == 1){
-	    uint8_t Last_Day=0;;
+	  if(RTC_Counter[RTC_HOURS] > 23){
+	    RTC_Counter[RTC_HOURS] = 0;
+	    uint8_t Last_Day=0;
 	    RTC_Counter[RTC_DAY_OF_WEEK]++;
 	    RTC_Counter[RTC_DATE_OF_MONTH]++;
 	    if(RTC_Counter[RTC_DAY_OF_WEEK] > 7){ RTC_Counter[RTC_DAY_OF_WEEK] = 1; }
@@ -2216,7 +2272,15 @@ void sdu_clock_pulse(){
 	  switch(rtc_addr){
 	  case 0x00 ... 0x09:
 	    if(RTC_REGA.Update_In_Progress == 0){
+	      if (rtc_addr == RTC_SECONDS) // the first index being read (see time:read-rtc-chip)
+		// maybe update RTC data from localtime
+		rtc_update_localtime(0);
 	      RTC_Data.word = RTC_Counter[rtc_addr];
+	      if (RTC_REGB.Format == 0 && rtc_addr == RTC_HOURS) {
+		// 12h format (but never, normally - see time:set-correct-rtc-modes)
+		if (RTC_Data.word > 13)
+		  RTC_Data.word = (RTC_Data.word-12) & 0x80;
+	      }
 	    }else{
 	      RTC_Data.word = 0;
 	    }
@@ -2304,6 +2368,10 @@ void sdu_clock_pulse(){
 	    case 0x00 ... 0x09:
 	      if(RTC_REGA.Update_In_Progress == 0){
 		RTC_Counter[rtc_addr] = RTC_Data.byte[0];
+		if (RTC_REGB.Format == 0 && rtc_addr == RTC_HOURS) { // 12h format
+		  if (RTC_Data.byte[0] & 0x80)  // PM
+		    RTC_Counter[rtc_addr] = (RTC_Data.byte[0] & ~0x80)+12; // make it 24h
+		}
 	      }
 	      break;
 	    case 0x0A:

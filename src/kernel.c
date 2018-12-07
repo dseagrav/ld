@@ -74,11 +74,6 @@
 // Processor states
 extern struct lambdaState pS[2];
 
-// RTC time
-uint32_t rtc_sec,rtc_min,rtc_hour;
-uint32_t rtc_dow,rtc_date,rtc_month;
-uint32_t rtc_year;
-
 /* DISK GEOMETRY
    This will be read by the SDU.
 
@@ -2075,39 +2070,6 @@ void FB_dump(int vn){
 
 // Hardware initialization
 void hw_init(){
-  // RTC initialization
-  // The Lambda expects the RTC to read in local time.
-  time_t rt_sec = time(NULL);
-  struct tm *real_tm = localtime(&rt_sec);
-
-  // The RTC on the SDU is a Motorola MC146818.
-  // The year is supposed to be 0-99, but lisp will use any 8 bits of data in there.
-  // Day of week, date of month, and month are based at 1.
-  // If DST is in effect, Lambda expects the clock to be offset one hour.
-  if(real_tm != NULL && real_tm->tm_isdst > 0){
-    rt_sec -= (60*60); // Back one hour
-    real_tm = localtime(&rt_sec);
-  }
-  if(real_tm != NULL){
-    rtc_sec = real_tm->tm_sec;
-    rtc_min = real_tm->tm_min;
-    rtc_hour = real_tm->tm_hour;
-    rtc_dow = (real_tm->tm_wday+1);
-    rtc_date = real_tm->tm_mday;
-    rtc_month = (real_tm->tm_mon+1);
-    rtc_year = real_tm->tm_year;
-  }else{
-    // Default safe date.
-    // Not sure what the correct time was; 7 AM seems like a reasonable before-school time slot.
-    rtc_sec = 0;
-    rtc_min = 0;
-    rtc_hour = 7;
-    rtc_dow = 7;
-    rtc_date = 7;
-    rtc_month = 3;
-    rtc_year = 92;
-  }
-  
   // Reset processor and all peripherals
   printf("Initializing...\r\n");
   lambda_initialize(0,0xF0);
