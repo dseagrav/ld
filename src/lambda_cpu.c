@@ -32,6 +32,12 @@
 #include "sdu.h"
 #include "syms.h"
 
+#ifdef SDL2
+// BEEP support. The addresses of XBEEP and XFALSE are looked up in lambda_initialize.
+uint32_t xbeep_addr = 0;
+uint32_t xfalse_addr = 0;
+#endif
+
 // FIXME: Remove the #define and the conditionals later
 #define ISTREAM
 
@@ -760,6 +766,23 @@ void lambda_initialize(int I,int ID){
       x++;
     }
   }
+
+#ifdef SDL2
+  // Should this be done every time, in case user changes microcode?
+  // But then they'd have to change symbols file too...
+  if (xbeep_addr == 0) {
+    if (sym_find(1, "XBEEP", (int *)&xbeep_addr) != 0)
+      logmsgf(LT_LAMBDA,0,"can't find XBEEP ucode address\n");
+    else
+      logmsgf(LT_LAMBDA,10,"found XBEEP at %#o\n", xbeep_addr);
+  }
+  if (xfalse_addr == 0) {
+    if (sym_find(1, "XFALSE", (int *)&xfalse_addr) != 0)
+      logmsgf(LT_LAMBDA,0,"can't find XFALSE ucode address\n");
+    else
+      logmsgf(LT_LAMBDA,10,"found XFALSE at %#o\n", xfalse_addr);
+  }
+#endif
 }
 
 // ALU items
@@ -1428,6 +1451,52 @@ void handle_source(int I,int source_mode){
           }
           logmsgf(LT_LAMBDA,10,"\n");
         }
+#ifdef SDL2
+	// Hack to capture calls to SYS:%BEEP. Rather than doing it at microcode level,
+	// needing to interpret writes to toggle the loudspeaker,
+	// do it at macrocode level (sort of), using SDL Audio functionality to make noise.
+	// @@@@ what timing and other accounting needs to be taken care of?
+	// @@@@ clock seems to catch up, magically?
+
+	// Only use this code if the symbols can be found (too dangerous otherwise?).
+	// Generalize to handle other functionality?
+	if (xbeep_addr != 0 && xfalse_addr != 0 && disp_word.PC == xbeep_addr) { // XBEEP 
+	  // The beep params are on the call stack (first pop duration, then wavelength)
+	  // See the case for LAM-M-SRC-C-PDL-BUFFER-POINTER-POP above
+	  // Read documentation for pS[I].DP_Mode
+	  uint32_t duration, wavelength;
+	  if((pS[I].DP_Mode.PDL_Addr_Hi) == 0){
+	    // pop duration
+	    duration = pS[I].Mmemory[pS[I].pdl_ptr_reg];
+	    pS[I].pdl_ptr_reg--; pS[I].pdl_ptr_reg &= 0xFFF;
+	    // pop wavelength
+	    wavelength = pS[I].Mmemory[pS[I].pdl_ptr_reg];
+	    pS[I].pdl_ptr_reg--; pS[I].pdl_ptr_reg &= 0xFFF;
+	  }else{
+	    // pop duration
+	    duration = pS[I].Mmemory[0x800+pS[I].pdl_ptr_reg];
+	    pS[I].pdl_ptr_reg--; pS[I].pdl_ptr_reg &= 0x7FF;
+	    // pop wavelength
+	    wavelength = pS[I].Mmemory[0x800+pS[I].pdl_ptr_reg];
+	    pS[I].pdl_ptr_reg--; pS[I].pdl_ptr_reg &= 0x7FF;
+	  }
+	  // Check datatypes and de-tag
+	  if (((duration >> 031) & 037) != 5) // DTP-FIX
+	    duration = 0;	// @@@@ maybe log an error?
+	  else
+	    duration &= 0177777777;  // 25 bit fixnum
+	  if (((wavelength >> 031) & 037) != 5) // DTP-FIX
+	    wavelength = 0;	// @@@@ maybe log an error?
+	  else
+	    wavelength &= 0177777777;  // 25 bit fixnum
+	  // printf("XBEEP wavelength %d. duration %d.\n", wavelength, duration);
+	  xbeep(wavelength, duration);
+	  // printf("MID: patch XBEEP => XFALSE\n");
+	  // just return false, never call the XBEEP routine
+	  disp_word.PC = xfalse_addr; // XFALSE
+	}
+	// end hack
+#endif
         pS[I].Mbus = disp_word.PC;
       }
       break;

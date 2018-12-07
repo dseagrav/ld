@@ -309,6 +309,12 @@ int active_console = 0;
 // Reverse video mode (think <Terminal> C)
 int black_on_white[2] = { 1,1 };               // 1 => white-on-black, 0 => black-on-white
 
+#ifdef SDL2
+// BEEP support
+void xbeep_audio_init();
+void xbeep_audio_close();
+#endif
+
 #ifdef SDL1
 // SDL1 state
 SDL_Surface *screen;
@@ -1580,6 +1586,7 @@ static void sdl_cleanup(void){
   if(sdu_fd > 0){
     close(sdu_fd);
   }
+  xbeep_audio_close();
   write_nvram();
   write_rtc_nvram();
   SDL_Quit();
@@ -1608,7 +1615,7 @@ int sdl_init(int width, int height){
   int i,j;
   struct sigaction sigact;
 
-  flags = SDL_INIT_VIDEO;
+  flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO;
 
   if (SDL_Init(flags)) {
     fprintf(stderr, "SDL initialization failed\n");
@@ -1670,6 +1677,9 @@ int sdl_init(int width, int height){
 
   // Clean up if we die
   atexit(sdl_cleanup);
+
+  // initialize audio for beeping
+  xbeep_audio_init();
 
   // Clear stored bitmaps
   uint32_t *p = FB_Image[0];
@@ -2785,6 +2795,89 @@ void map_key(int sval, int dval){
   }	
 }
 
+#ifdef SDL2
+// SDL Audio beep code.
+// This code is based on https://stackoverflow.com/a/45002609
+// It can probably be adjusted and optimized.
+
+float xbeep_volume = 1.0f;
+int AMPLITUDE = 28000;
+const int SAMPLE_RATE = 44100;
+
+int xbeep_sample_nr = 0;
+float xbeep_freq = 0.0f;
+
+// The callback to produce the sine wave.
+void xbeep_audio_callback(void *user_data, Uint8 *raw_buffer, int bytes)
+{
+    Sint16 *buffer = (Sint16*)raw_buffer;
+    int length = bytes / 2; // 2 bytes per sample for AUDIO_S16SYS
+    float *freq = (float *)(user_data);
+    int amp = AMPLITUDE * xbeep_volume;
+
+    for(int i = 0; i < length; i++, xbeep_sample_nr++)
+    {
+        double time = (double)xbeep_sample_nr / (double)SAMPLE_RATE;
+        buffer[i] = (Sint16)(amp * sin(2.0f * M_PI * (*freq) * time)); // render sine wave
+    }
+}
+
+// Opens the audio, called by sdl_init
+void xbeep_audio_init() {
+  SDL_AudioSpec want;
+  want.freq = SAMPLE_RATE; // number of samples per second
+  want.format = AUDIO_S16SYS; // sample type (here: signed short i.e. 16 bit)
+  want.channels = 1; // only one channel
+  want.samples = 2048; // buffer-size
+  want.callback = xbeep_audio_callback; // function SDL calls periodically to refill the buffer
+  want.userdata = &xbeep_freq; // counter, keeping track of current sample number
+
+  SDL_AudioSpec have;
+  if(SDL_OpenAudio(&want, &have) != 0) SDL_LogError(SDL_LOG_CATEGORY_AUDIO, "Failed to open audio: %s", SDL_GetError());
+  if(want.format != have.format) SDL_LogError(SDL_LOG_CATEGORY_AUDIO, "Failed to get the desired AudioSpec");
+
+  // pause it just to be on the safe side?
+  SDL_PauseAudio(1);
+}
+
+// close the audio, called by sdl_cleanup. (Not really necessary since SDL_Quit appears just after...)
+void xbeep_audio_close() {
+  SDL_CloseAudio();
+}
+
+// Here is the main function to implement the %BEEP instruction, which originally calls the
+// XBEEP routine in SYS:ULAMBDA;UC-HACKS. %BEEP takes two args: wavelength and duration.
+// In SYS:WINDOW;TVDEFS, 
+//   duration is "the number of cycles of beep tone to output" (default #o400000 = 131072.), and
+//   wavelength is "the duration of one cycle of beep tone" (default #o3150 = 744.)
+// SYS:ULAMBDA;UC-HACKS say they are both in microseconds, and that wavelength is half-wavelength.
+// SYS:DEMO;BEEPS says
+// period (wavelength) is
+//   number of clockcycles in half period of tone.  100 produces a really high
+//   pitch tone, while 5000 produces about the lowest tone possible.  500 is
+//   the default beep tone on most of the lisp machines (I think).
+// length (duration) is
+//   Total number of clockcycles that tone will last for.  A value of 100000
+//   last a little less than (really roughly) a 10th of a second.
+// kernel.c says Lambda has a 5MHz clock:
+//   5 MHz/100/2 = 50000/2 = 25 KHz 
+//   5 MHz/5000/2 = 1000/2 = 500 Hz
+//   both seem off by a factor 10 by BEEPS description?
+// Using 1 MHz (from BEEPS description of duration):
+//   1 MHz/100/2 = 10000/2 = 5 KHz
+//   1 MHz/5000/2 = 200/2 = 100 Hz
+// Freq seems OK, but short durations (under 40000?) work intermittently.
+// HACKS:BOOP seems to work using 10000?
+void xbeep(int halfwavelength, int duration) {
+  xbeep_freq = 1000000.0f / (float)(halfwavelength*2);
+  xbeep_sample_nr = 0;
+
+  SDL_PauseAudio(0); // start playing sound
+  SDL_Delay(duration/1000); // wait while sound is playing
+  SDL_PauseAudio(1); // stop playing sound
+}
+#else
+// Old hack
 // Handle writes to keyboard control reg #5 to click/not (cf vcmem.c)
 void audio_control(int onoff) {
   static int state = 0;
@@ -2803,6 +2896,7 @@ void audio_control(int onoff) {
   }
   state = onoff;
 }
+#endif
 
 int find_lm_key_named(char *name) {
   // Given a Lispm key name, find its code
@@ -3081,6 +3175,17 @@ void parse_config_line(char *line){
 #endif
     }
   }
+#ifdef SDL2
+  if (strcasecmp(tok,"audio_volume") == 0) {
+    // Set audio volume (0.0-1.0)
+    tok = strtok(NULL, " \t\r\n");
+    if (sscanf(tok,"%f", &xbeep_volume) != 1 || xbeep_volume > 1.0f || xbeep_volume < 0.0f) {
+      printf("bad audio_volume %s\n", tok);
+      xbeep_volume = 1.0f;
+    }
+    return;
+  }
+#endif
   if(strcasecmp(tok,"log") == 0){
     // Alter log levels
     tok = strtok(NULL," \t\r\n");
