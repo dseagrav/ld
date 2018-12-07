@@ -93,12 +93,16 @@ typedef union rSerialControlReg {
   } __attribute__((packed));
 } SerialControlReg;
 
+// Framebuffer and scanline table sizes
+#define FB_SIZE (1024*128)
+#define SLT_SIZE (0x800)
+
 // Card state
 struct vcmemState {
   // Memories
-  uint8_t AMemory[1024*128];
-  uint8_t BMemory[1024*128];
-  uint32_t SLT[0x800]; // Scanline Table
+  uint8_t AMemory[FB_SIZE];
+  uint8_t BMemory[FB_SIZE];
+  uint32_t SLT[SLT_SIZE]; // Scanline Table
   // Register storage
   FunctionReg Function;
   MemoryControlReg MemoryControl;
