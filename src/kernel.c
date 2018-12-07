@@ -451,7 +451,7 @@ void init_sdl_to_keysym_map(void){
   map[SDLK_RETURN] = 0136; // ENTER
   map[SDLK_BACKSPACE] = 0023; // BACKSPACE (MAPS TO RUBOUT)
   map[SDLK_TAB] = 0022; // TAB
-  map[SDLK_ESCAPE] = 0023; // ESC
+  map[SDLK_ESCAPE] = 0143; // ALT MODE
 
   // LMI arrows were shift states?
   // Or maybe it's the HAND keys?
@@ -568,7 +568,7 @@ void init_sdl_to_scancode_map(void){
   map[SDL_SCANCODE_RETURN] = 0136; // ENTER
   map[SDL_SCANCODE_BACKSPACE] = 0023; // BACKSPACE (MAPS TO RUBOUT)
   map[SDL_SCANCODE_TAB] = 0022; // TAB
-  map[SDL_SCANCODE_ESCAPE] = 0023; // ESC
+  map[SDL_SCANCODE_ESCAPE] = 0143; // ALT MODE
 
   // LMI arrows were shift states?
   // Or maybe it's the HAND keys?
