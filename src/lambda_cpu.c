@@ -3139,6 +3139,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	case 03002: // Used After Dispatch uInst, goes to 3000
 	case 04000: // HALT SETZ
 	case 04400: // HALT JUMP
+	case 07000: // "HALTED" LOOP
 	  switch(pS[I].TREG.next_select){
 	  case 0: // DISPATCH
 	    pS[I].TRAM_PC = (pS[I].TREG.state&07);
@@ -4875,6 +4876,7 @@ void lambda_clockpulse(int I){
     pS[I].uI_Clock_Pulse = false;
     pS[I].wrote_uPC = false;
     pS[I].SM_Clock = 1;
+    pS[I].TRAM_PC = 07000; // TRAM will loop here on a "normal" halt. It's the "halt version" of 03000
     //disassemble_IR();
     //disassemble_MIR();
 #ifdef LAMBDA_DEBUGTRACE
