@@ -4,6 +4,7 @@
 ld
 lam
 lpart
+tools/maketape
 # Emacs backup files
 *~
 # Trace logs

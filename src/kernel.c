@@ -304,7 +304,7 @@ int active_console = 0;
 // Reverse video mode (think <Terminal> C)
 int black_on_white[2] = { 1,1 };               // 1 => white-on-black, 0 => black-on-white
 
-#ifdef SDL2
+#ifdef XBEEP
 // BEEP support
 void xbeep_audio_init();
 void xbeep_audio_close();
@@ -1581,7 +1581,9 @@ static void sdl_cleanup(void){
   if(sdu_fd > 0){
     close(sdu_fd);
   }
+#ifdef XBEEP
   xbeep_audio_close();
+#endif
   write_nvram();
   write_rtc_nvram();
   SDL_Quit();
@@ -1673,8 +1675,10 @@ int sdl_init(int width, int height){
   // Clean up if we die
   atexit(sdl_cleanup);
 
+#ifdef XBEEP
   // initialize audio for beeping
   xbeep_audio_init();
+#endif
 
   // Clear stored bitmaps
   uint32_t *p = FB_Image[0];
@@ -2760,6 +2764,7 @@ void map_key(int sval, int dval){
   }	
 }
 
+#ifdef XBEEP
 #ifdef SDL2
 // SDL Audio beep code.
 // This code is based on https://stackoverflow.com/a/45002609
@@ -2842,7 +2847,10 @@ void xbeep(int halfwavelength, int duration) {
   SDL_PauseAudio(1); // stop playing sound
 }
 #else
-// Old hack
+// Non-SDL2 XBEEP goes here
+#endif // SDL1 vs SLD2 XBEEP
+#else // XBEEP vs. console beep
+// Use console beep instead of XBEEP
 // Handle writes to keyboard control reg #5 to click/not (cf vcmem.c)
 void audio_control(int onoff) {
   static int state = 0;
@@ -3140,6 +3148,7 @@ void parse_config_line(char *line){
 #endif
     }
   }
+#ifdef XBEEP
 #ifdef SDL2
   if (strcasecmp(tok,"audio_volume") == 0) {
     // Set audio volume (0.0-1.0)
@@ -3150,7 +3159,10 @@ void parse_config_line(char *line){
     }
     return;
   }
+#else
+  // SDL1 XBEEP here
 #endif
+#endif // XBEEP
   if(strcasecmp(tok,"log") == 0){
     // Alter log levels
     tok = strtok(NULL," \t\r\n");

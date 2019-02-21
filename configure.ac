@@ -10,6 +10,14 @@ AM_INIT_AUTOMAKE
 # Checks for programs.
 AC_PROG_CC
 
+# Conditionalize XBEEP
+AC_ARG_ENABLE([use_xbeep],
+	[AS_HELP_STRING([--enable-use-xbeep], [Enable superior XBEEP hack @<:@default=yes@:>@])])
+
+AS_IF([test "x$enable_use_xbeep" = "xno"], [], [
+	CFLAGS="$CFLAGS -DXBEEP"
+	])
+
 # Conditionalize UTUN
 AC_ARG_ENABLE([use_utun],
 	[AS_HELP_STRING([--enable-use-utun], [Use UTUN frame diverter with BPF @<:@default=no@:>@])])
@@ -79,7 +87,7 @@ AS_IF([test "$GFX_SDL1" = TRUE],
 
 # Checks for header files.
 AC_HEADER_STDC
-AC_CHECK_HEADERS([fcntl.h netdb.h netinet/in.h stddef.h stdint.h stdlib.h string.h strings.h sys/ioctl.h sys/socket.h sys/time.h unistd.h])
+AC_CHECK_HEADERS([fcntl.h netdb.h netinet/in.h arpa/inet.h stddef.h stdint.h stdlib.h string.h strings.h sys/ioctl.h sys/socket.h sys/time.h unistd.h termios.h])
 AC_CHECK_HEADERS([linux/if.h], [], [],
 [[#ifdef HAVE_SYS_SOCKET_H
 #include <sys/socket.h>
@@ -106,10 +114,11 @@ AC_TYPE_UINT16_T
 AC_TYPE_UINT32_T
 AC_TYPE_UINT64_T
 AC_TYPE_UINT8_T
+AC_TYPE_UID_T
 
 # Checks for library functions.
 AC_FUNC_MALLOC
-AC_CHECK_FUNCS([atexit bzero gethostbyname memset socket strcasecmp strdup strtol])
+AC_CHECK_FUNCS([atexit bzero inet_ntoa gethostbyname memset socket strcasecmp strdup strtol strchr gettimeofday])
 
 # Path propagation
 CFLAGS="$CFLAGS -DSYSCONFDIR=${sysconfdir}"

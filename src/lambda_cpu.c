@@ -32,7 +32,7 @@
 #include "sdu.h"
 #include "syms.h"
 
-#ifdef SDL2
+#ifdef XBEEP
 // BEEP support. The addresses of XBEEP and XFALSE are looked up in lambda_initialize.
 uint32_t xbeep_addr = 0;
 uint32_t xfalse_addr = 0;
@@ -767,7 +767,7 @@ void lambda_initialize(int I,int ID){
     }
   }
 
-#ifdef SDL2
+#ifdef XBEEP
   // Should this be done every time, in case user changes microcode?
   // But then they'd have to change symbols file too...
   if (xbeep_addr == 0) {
@@ -1451,7 +1451,7 @@ void handle_source(int I,int source_mode){
           }
           logmsgf(LT_LAMBDA,10,"\n");
         }
-#ifdef SDL2
+#ifdef XBEEP
 	// Hack to capture calls to SYS:%BEEP. Rather than doing it at microcode level,
 	// needing to interpret writes to toggle the loudspeaker,
 	// do it at macrocode level (sort of), using SDL Audio functionality to make noise.

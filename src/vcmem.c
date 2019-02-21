@@ -323,7 +323,7 @@ void vcmem_clock_pulse(int vn){
 	  if(NUbus_trace == 1){
 	    logmsgf(LT_VCMEM,10,"VCMEM: Serial Port A Command = 0x%X\n",NUbus_Data.byte[0]);
 	  }
-#ifndef SDL2
+#ifndef XBEEP
 	  // Old beep hack, replaced by actual audio in SDL2
 	  // BV tracing beep, starting from uc-hacks:
           // It seems every other write is a register number, and the other is the value.
