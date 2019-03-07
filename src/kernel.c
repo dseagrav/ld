@@ -650,6 +650,9 @@ static const char *logtype_name[] = { "SYSTEM",
 				      "LISP" };
 
 // SDL items
+// Update rates
+int input_fps = 8333;  // 60 FPS
+int video_fps = 50000; // 10 FPS
 // Keyboard buffer
 uint8_t keyboard_io_ring[2][0x100];
 uint8_t keyboard_io_ring_top[2],keyboard_io_ring_bottom[2];
@@ -982,10 +985,11 @@ void send_accumulated_updates(void){
   u_maxv = 0;
 }
 
-void sdl_refresh(void){
+void sdl_refresh(int vblank){
   SDL_Event ev1, *ev = &ev1;
-
-  send_accumulated_updates();
+  if(vblank != 0){
+    send_accumulated_updates();
+  }
 
   while (SDL_PollEvent(ev)) {
     switch (ev->type) {
@@ -1525,16 +1529,18 @@ void accumulate_update(int h, int v, int hs, int vs){
   if (v+vs > u_maxv) u_maxv = v+vs;
 }
 
-void sdl_refresh(void){
+void sdl_refresh(int vblank){
   SDL_Event ev1, *ev = &ev1;
 
   // send_accumulated_updates();
 
   // Refresh display
-  SDL_UpdateTexture(SDLTexture, NULL, FrameBuffer, (VIDEO_WIDTH*4));
-  SDL_RenderClear(SDLRenderer);
-  SDL_RenderCopy(SDLRenderer, SDLTexture, NULL, NULL);
-  SDL_RenderPresent(SDLRenderer);
+  if(vblank != 0){
+    SDL_UpdateTexture(SDLTexture, NULL, FrameBuffer, (VIDEO_WIDTH*4));
+    SDL_RenderClear(SDLRenderer);
+    SDL_RenderCopy(SDLRenderer, SDLTexture, NULL, NULL);
+    SDL_RenderPresent(SDLRenderer);
+  }
 
   // Handle input
   while (SDL_PollEvent(ev)) {
@@ -1600,6 +1606,7 @@ uint32_t sdl_timer_callback(uint32_t interval, void *param __attribute__ ((unuse
 }
 
 // New timer callback because SDL2's interval timer sucks
+// Gets called every 100000 microseconds (so 10 times a second)
 static void itimer_callback(int signum __attribute__ ((unused))){
   // Real time passed
   real_time++;
@@ -3099,6 +3106,24 @@ void parse_config_line(char *line){
     }
     return;
   }
+  if(strcasecmp(tok,"video_fps") == 0){
+    // Video update rate
+    tok = strtok(NULL," \t\r\n");
+    if(tok != NULL){
+      int val = atoi(tok);
+      video_fps = (500000/val);
+      printf("Using %d for video rate (%d FPS)\r\n",video_fps,val);
+    }
+  }
+  if(strcasecmp(tok,"input_fps") == 0){
+    // input update rate
+    tok = strtok(NULL," \t\r\n");
+    if(tok != NULL){
+      int val = atoi(tok);
+      input_fps = (500000/val);
+      printf("Using %d for input rate (%d FPS)\r\n",input_fps,val);
+    }
+  }
   if(strcasecmp(tok,"map_key") == 0){
     // Alter keyboard map
     tok = strtok(NULL," \t\r\n");
@@ -3494,6 +3519,20 @@ int yaml_keyboard_mapping_loop(yaml_parser_t *parser){
 	    }
 	  }
 	  goto value_done;
+	}
+	if(strcmp(key,"video_fps") == 0){
+	  if(value[0] != 0){
+	    int val = atoi(value);
+	    video_fps = (500000/val);
+	    printf("Using %d for video rate (%d FPS)\r\n",video_fps,val);
+	  }
+	}
+	if(strcmp(key,"input_fps") == 0){
+	  if(value[0] != 0){
+	    int val = atoi(value);
+	    input_fps = (500000/val);
+	    printf("Using %d for input rate (%d FPS)\r\n",input_fps,val);
+	  }
 	}
 	if(strcmp(key,"map") == 0){
 	  if(value[0] != 0){	    
@@ -4071,6 +4110,7 @@ void nubus_cycle(int sdu){
 #endif
   // Other devices go here  
   sdu_clock_pulse();
+  // If the SDU isn't driving the clock pulse, clock stuff on the multibus too.
   if(sdu == 0){
     smd_clock_pulse();
     tapemaster_clock_pulse();
@@ -4334,9 +4374,10 @@ int main(int argc, char *argv[]){
     // New loop
     icount -= 500000; // Don't clobber extra cycles if they happened
     // Run for 1/10th of a second, or 100000 cycles
+    // The lambda runs at 5 MHz, so this loop has to run 5 times for each wall-clock cycle.
+    // icount gets incremented with each nubus cycle.
     while(icount < 500000 && ld_die_rq == 0){
       int x=0;
-      // Lambda runs at 5 MHz, so it gets 5 cycles
       while(x < 5 && ld_die_rq == 0){
 #ifdef BURR_BROWN
 	// Clock debug interface
@@ -4353,16 +4394,19 @@ int main(int argc, char *argv[]){
 	x++;
       }
       // Clock input
+      if((icount%input_fps) == 0){
 #ifdef CONFIG_PHYSKBD
-      if((icount%8333) == 0){
 	sdu_kbd_clockpulse();
-      }
 #endif
+	sdl_refresh(0);
+      }
+      // Clock video
+      if((icount%video_fps) == 0){
+	sdl_refresh(1);
+      }
     }
     // Redraw display and process input
-    sdl_refresh();
-    // Handle physical keyboard IO
-    // sdu_kbd_clockpulse();
+    // sdl_refresh(1);
     // Plumb SDU console
     if(sdu_rotary_switch != 1){
       sdu_cons_clockpulse();
