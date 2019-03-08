@@ -651,8 +651,10 @@ static const char *logtype_name[] = { "SYSTEM",
 
 // SDL items
 // Update rates
-int input_fps = 8333;  // 60 FPS
-int video_fps = 50000; // 10 FPS
+int input_fps = 83333;  // 60 FPS
+int video_fps = 500000; // 10 FPS
+int input_frame = 0;    // Frame trigger flag
+int video_frame = 0;    // Frame trigger flag
 // Keyboard buffer
 uint8_t keyboard_io_ring[2][0x100];
 uint8_t keyboard_io_ring_top[2],keyboard_io_ring_bottom[2];
@@ -989,6 +991,7 @@ void sdl_refresh(int vblank){
   SDL_Event ev1, *ev = &ev1;
   if(vblank != 0){
     send_accumulated_updates();
+    return;
   }
 
   while (SDL_PollEvent(ev)) {
@@ -1540,6 +1543,7 @@ void sdl_refresh(int vblank){
     SDL_RenderClear(SDLRenderer);
     SDL_RenderCopy(SDLRenderer, SDLTexture, NULL, NULL);
     SDL_RenderPresent(SDLRenderer);
+    return;
   }
 
   // Handle input
@@ -3111,7 +3115,11 @@ void parse_config_line(char *line){
     tok = strtok(NULL," \t\r\n");
     if(tok != NULL){
       int val = atoi(tok);
-      video_fps = (500000/val);
+      if(val < 10){
+	printf("Video FPS less than 10 is not supported; Using 10.\n");
+	val = 10;
+      }
+      video_fps = (5000000/val);
       printf("Using %d for video rate (%d FPS)\r\n",video_fps,val);
     }
   }
@@ -3120,7 +3128,11 @@ void parse_config_line(char *line){
     tok = strtok(NULL," \t\r\n");
     if(tok != NULL){
       int val = atoi(tok);
-      input_fps = (500000/val);
+      if(val < 10){
+	printf("Input FPS less than 10 is not supported; Using 10.\n");
+	val = 10;
+      }
+      input_fps = (5000000/val);
       printf("Using %d for input rate (%d FPS)\r\n",input_fps,val);
     }
   }
@@ -3523,14 +3535,22 @@ int yaml_keyboard_mapping_loop(yaml_parser_t *parser){
 	if(strcmp(key,"video_fps") == 0){
 	  if(value[0] != 0){
 	    int val = atoi(value);
-	    video_fps = (500000/val);
+	    if(val < 10){
+	      printf("Video FPS less than 10 is not supported; Using 10.\n");
+	      val = 10;
+	    }
+	    video_fps = (5000000/val);
 	    printf("Using %d for video rate (%d FPS)\r\n",video_fps,val);
 	  }
 	}
 	if(strcmp(key,"input_fps") == 0){
 	  if(value[0] != 0){
 	    int val = atoi(value);
-	    input_fps = (500000/val);
+	    if(val < 10){
+	      printf("Input FPS less than 10 is not supported; Using 10.\n");
+	      val = 10;
+	    }
+	    input_fps = (5000000/val);
 	    printf("Using %d for input rate (%d FPS)\r\n",input_fps,val);
 	  }
 	}
@@ -4393,21 +4413,31 @@ int main(int argc, char *argv[]){
 	nubus_cycle(0);
 	x++;
       }
+      // NOTE THAT IN THE BEST CASE, ICOUNT WILL INCREMENT BY 5 HERE
+      // WITH HEAVY LAMBDA/SDU INTERACTION (DISK IO!), THIS CAN BE SEVERAL MULTIPLES OF 5!
       // Clock input
-      if((icount%input_fps) == 0){
+      if((icount%input_fps) < 30){
+	if(input_frame == 0){
 #ifdef CONFIG_PHYSKBD
-	sdu_kbd_clockpulse();
+	  sdu_kbd_clockpulse();
 #endif
-	sdl_refresh(0);
+	  sdl_refresh(0);
+	  input_frame = 1;
+	}
+      }else{
+	if(input_frame == 1){ input_frame = 0; }
       }
       // Clock video
-      if((icount%video_fps) == 0){
-	sdl_refresh(1);
+      if((icount%video_fps) < 30){
+	if(video_frame == 0){
+	  sdl_refresh(1);
+	  video_frame = 1;
+	}
+      }else{
+	if(video_frame == 1){ video_frame = 0; }
       }
     }
-    // Redraw display and process input
-    // sdl_refresh(1);
-    // Plumb SDU console
+    // Plumb SDU serial console (should probably happen in the input frame?)
     if(sdu_rotary_switch != 1){
       sdu_cons_clockpulse();
     }
