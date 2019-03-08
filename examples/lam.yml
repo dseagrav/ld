@@ -1,0 +1,104 @@
+# Example LambdaDelta YAML Configuration
+# This file is documentation; It is not expected to be usable as-is.
+
+# Top-level keys control who parses what.
+# There are no values at the top level, only sequences or mappings.
+
+# Global LambdaDelta settings
+lam:
+  # Working Directory (where to chdir for to access disk/rom/tape images)
+  wd: /usr/local/whatever/etc
+  # File to use for physical keyboard IO
+  kb_file: /dev/ttySX
+  # Baud rate to use for physical keyboard IO
+  kb_baud: 9600  
+
+# Logging settings
+log:
+  # Key is either a logtype (see logtype_name in kernel.c) or ALL
+  # Value is the logging level to use
+  # Value of 0 = Minimal logging
+  # Value of 10 = Maximum logging
+  ALL: 0
+
+# Keyboard settings
+keyboard:
+  # Whether or not to respect the SDL_QUIT event. (on/true/yes or off/false/no)
+  quit: on
+  # keyboard/mouse input frame rate
+  input_fps: 60
+  # Map decimal SDL keycode "foo" (see the SDL documentation)
+  # to octal Lambda keycode "bar" (see doc/KEYCODES)
+  map: foo bar
+  # Mapping as a sequence can also go here
+  # Values as above
+  mapping:
+    - sdl: x
+      lambda: a
+    - sdl: y
+      lambda: b
+    - sdl: z
+      lambda: c
+
+# SDU settings
+sdu:
+  # The SDU rotary switch position (0 = new install, 1 = default, other positions non-normal - see SDU documentation)
+  switch: 1
+
+# Video settings
+video:
+  # SDL video frame rate
+  video_fps: 20
+  # SDL framebuffer pixel values
+  # Note that on/off means 1/0 in the Lambda's 1bpp framebuffer,
+  # not the actually displayed value when the Lambda framebuffer's
+  # polarity switch is taken into consideration.
+  pixel-on: 0xFFFFFFFF
+  pixel-off: 0x00000000
+
+# Mouse settings
+mouse:
+  # Mouse mode:
+  # 0 = direct (capture the mouse and drive the VCMEM serial port when it moves)
+  # 1 = shared (push the host's window-relative mouse position into A-memory)
+  mode: 1
+  # A-Memory locations for Mode 1.
+  # lambda: which processor (for 2x2)
+  # xloc: X position location
+  # yloc: Y position location
+  # wake: Actvity flag location
+  locs:
+    - lambda: 0
+      xloc: 0156
+      yloc: 0157
+      wake: 0170
+    - lambda: 1
+      xloc: 0156
+      yloc: 0157
+      wake: 0170  
+
+# Networking settings
+network:
+  # The network interface to use
+  interface: ldtap
+  # The Lambda's MAC address
+  address: 00:02:9C:55:89:C6
+  # The Lambda's guest IP if you are using UTUN (otherwise undefined key)
+  guest-ip: aaa.bbb.ccc.ddd
+
+# Disk settings
+disk:
+  # Units can be specified in one line.
+  # This is mostly so they can be specified on the command line.
+  # Parameters are the unit number and image file name.
+  image: 0 disk.img
+  image: 1 disk2.img
+  # They can also be specified as a sequence
+  # unit = which drive
+  # file = image file
+  units:
+    - unit: 0
+      file: disk.img
+    - unit: 1
+      file: disk2.img
+

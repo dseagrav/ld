@@ -3532,17 +3532,6 @@ int yaml_keyboard_mapping_loop(yaml_parser_t *parser){
 	  }
 	  goto value_done;
 	}
-	if(strcmp(key,"video_fps") == 0){
-	  if(value[0] != 0){
-	    int val = atoi(value);
-	    if(val < 10){
-	      printf("Video FPS less than 10 is not supported; Using 10.\n");
-	      val = 10;
-	    }
-	    video_fps = (5000000/val);
-	    printf("Using %d for video rate (%d FPS)\r\n",video_fps,val);
-	  }
-	}
 	if(strcmp(key,"input_fps") == 0){
 	  if(value[0] != 0){
 	    int val = atoi(value);
@@ -3553,6 +3542,7 @@ int yaml_keyboard_mapping_loop(yaml_parser_t *parser){
 	    input_fps = (5000000/val);
 	    printf("Using %d for input rate (%d FPS)\r\n",input_fps,val);
 	  }
+	  goto value_done;
 	}
 	if(strcmp(key,"map") == 0){
 	  if(value[0] != 0){	    
@@ -3645,6 +3635,18 @@ int yaml_video_mapping_loop(yaml_parser_t *parser){
 	  uint32_t sval = strtol(value,NULL,16);
 	  pixel_off = sval;
 	  printf("pixel_off set to 0x%X\n", pixel_off);	  
+	  goto value_done;
+	}
+	if(strcmp(key,"video_fps") == 0){
+	  if(value[0] != 0){
+	    int val = atoi(value);
+	    if(val < 10){
+	      printf("Video FPS less than 10 is not supported; Using 10.\n");
+	      val = 10;
+	    }
+	    video_fps = (5000000/val);
+	    printf("Using %d for video rate (%d FPS)\r\n",video_fps,val);
+	  }
 	  goto value_done;
 	}
 	printf("video: Unknown key %s (value %s)\n",key,value);

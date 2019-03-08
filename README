@@ -80,10 +80,42 @@ CONFIGURING LAMBDADELTA
   with the option "--enable-config-2x2=yes"
 
   After compilation, run-time options are controlled by a configuration
-  file named "ld.conf". An example configuration is provided in the
-  examples directory. Each line of the configuration file has a keyword
-  followed by a number of parameters. The following are the supported
-  keywords and their parameters:
+  file. If you have the YAML library installed (and configure found it),
+  it will use YAML configuration.  Otherwise, it will use the old
+  configuration file.
+
+YAML CONFIGURATION FILE:
+  This is the new configuration method that is intended to be used going
+  forward. The YAML configuration file is named "lam.yml" and is searched
+  for in the following places, in order: 
+  
+  1: The directory specified in SYSCONFDIR if it was defined during build.
+  2: The user's home directory, as determined by:
+     A: The $HOME environment variable, or if that is not defined:
+     B: If we are root and were run by sudo, from the sudoer's passwd entry.
+     C: If we are root and were not run by sudo, root's passwd entry.
+     D: If we are not root, the user's passwd entry.
+  3: The current working directory.
+  
+  Any or all of these locations are valid; Configuration items in later
+  files supersede those specified in earlier files.
+
+  You may also specify a configuration file of any name on the command line
+  by using the -c argument. This file, if provided, is loaded last.
+
+  Single YAML key/value pairs may also be specified on the command line
+  by specifying them in the form  "--section-key value". For example, the
+  argument "--log-ALL 10" will enable maximum logging of all types.
+
+  A full description of the YAML configuration file is beyond the scope
+  of this document; See the "lam.yml" file in the examples directory.
+
+OLD CONFIGURATION FILE:
+  The old configuration file is named "ld.conf" and must be in the current
+  working directory. An example configuration is provided in the examples
+  directory. Each line of the configuration file has a keyword followed by
+  a number of parameters. The following are the supported keywords
+  and their parameters:
 
   ether_iface IFACE
   Causes the ethernet interface to be bound to the specified interface.
