@@ -144,6 +144,15 @@ CONFIGURING LAMBDADELTA
   AARRGGBB where AA is Alpha, RR is Red, GG is Green, BB is Blue. The default
   pixel values are 0xFFFFFFFF for on and 0x00000000 for off.
 
+  input_fps N
+  video_fps N
+  Sets the framerate used for video output or user input. These are updated
+  in the decisecond loop, so values less than ten will not work as expected,
+  and will be set to ten. The default values are 60 input frames per second
+  and 10 video frames per second.
+  Note that the video frame rate does not affect updation of the title bar,
+  only the rate at which the SDL framebuffer is refreshed.
+
   sdl_quit STATE
   Enables or disables handling of the platform-specific SDL_QUIT event.
   (Alt-F4,Command-Q,etc.) STATE is one of on,off,yes,no,true,or false.
