@@ -362,6 +362,11 @@ int process(char *name){
       // printf("DONT-SUPERSEDE: %s\n",headerword);
       found = 1;
     }
+    if(strcmp(headerword,":LMI-TID") == 0){
+      headerword = strtok(NULL,"\" ");
+      // printf("LMI-TID: %s\n",headerword);
+      found = 1;
+    }
     if(strcmp(headerword,":DONT-REAP") == 0){
       // Did this come from ITS?
       headerword = strtok(NULL,"\" ");

@@ -117,7 +117,7 @@ int main(int argc, char *argv[]){
       // We have a block
       ssize_t rv;
       if(out_fd == -1){
-	sprintf(ofname,"file-%d.bin",ofnumber);
+	sprintf(ofname,"file-%d.dat",ofnumber);
 	out_fd = open(ofname,O_RDWR|O_CREAT,0660);
 	if(out_fd < 0){
 	  perror("Output:open");
