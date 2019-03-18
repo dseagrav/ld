@@ -5,6 +5,8 @@ ld
 lam
 lpart
 tools/maketape
+tools/dumptape
+tools/decode_lmfl
 # Emacs backup files
 *~
 # Trace logs
