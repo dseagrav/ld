@@ -125,5 +125,6 @@ CFLAGS="$CFLAGS -DSYSCONFDIR=${sysconfdir}"
 
 # Done
 AC_CONFIG_FILES([Makefile
-                 src/Makefile])
+                 src/Makefile
+		 tools/Makefile])
 AC_OUTPUT
