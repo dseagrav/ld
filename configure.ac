@@ -87,7 +87,8 @@ AS_IF([test "$GFX_SDL1" = TRUE],
 
 # Checks for header files.
 AC_HEADER_STDC
-AC_CHECK_HEADERS([fcntl.h netdb.h netinet/in.h arpa/inet.h stddef.h stdint.h stdlib.h string.h strings.h sys/ioctl.h sys/socket.h sys/time.h unistd.h termios.h])
+AC_CHECK_HEADERS([fcntl.h netdb.h netinet/in.h arpa/inet.h stddef.h stdint.h stdlib.h string.h strings.h])
+AC_CHECK_HEADERS([ sys/ioctl.h sys/socket.h sys/time.h unistd.h termios.h utime.h])
 AC_CHECK_HEADERS([linux/if.h], [], [],
 [[#ifdef HAVE_SYS_SOCKET_H
 #include <sys/socket.h>
@@ -99,6 +100,9 @@ AC_CHECK_HEADERS([linux/if_tun.h], [], [],
 #endif
 ]])
 AC_CHECK_HEADERS([net/bpf.h])
+
+# Check for structure members
+AC_CHECK_MEMBERS([struct stat.st_blksize])
 
 # Do we have libyaml?
 AC_CHECK_HEADERS([yaml.h], [LIBS="$LIBS -lyaml"])
@@ -118,7 +122,10 @@ AC_TYPE_UID_T
 
 # Checks for library functions.
 AC_FUNC_MALLOC
-AC_CHECK_FUNCS([atexit bzero inet_ntoa gethostbyname memset socket strcasecmp strdup strtol strchr gettimeofday])
+AC_FUNC_REALLOC
+AC_STRUCT_ST_BLOCKS
+AC_CHECK_FUNCS([atexit bzero inet_ntoa gethostbyname memset socket strcasecmp strdup strtol strchr])
+AC_CHECK_FUNCS([gettimeofday mkdir strerror strstr utime])
 
 # Path propagation
 CFLAGS="$CFLAGS -DSYSCONFDIR=${sysconfdir}"
