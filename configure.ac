@@ -55,9 +55,16 @@ AC_ARG_WITH([SDL2],
 	[],
 	[with_SDL2=check])
 
+AC_ARG_WITH([FUSE],
+	[AS_HELP_STRING([--with-FUSE],
+		[support FUSE-based LMFS filesystem @<:@default=check@:>@])],
+	[],
+	[with_FUSE=check])
+
 # Checks for SDL1
 SDL_VERSION=1.2.0
-LIBSDL1=AS_IF([test "x$with_SDL1" != xno],
+LIBSDL1=
+AS_IF([test "x$with_SDL1" != xno],
 		    [AM_PATH_SDL($SDL_VERSION,:,
 			AS_IF([test "x$with_SDL1" == xyes],[AC_MSG_ERROR([*** SDL1 version $SDL_VERSION not found!])])
   			)
@@ -68,7 +75,8 @@ LIBSDL1=AS_IF([test "x$with_SDL1" != xno],
 
 # Checks for SDL2
 SDL2_VERSION=2.0.0
-LIBSDL2=AS_IF([test "x$with_SDL2" != xno],
+LIBSDL2=
+AS_IF([test "x$with_SDL2" != xno],
 		    [AM_PATH_SDL2($SDL2_VERSION,:,
 			AS_IF([test "x$with_SDL2" == xyes],[AC_MSG_ERROR([*** SDL2 version $SDL_VERSION not found!])])
 			)
@@ -84,6 +92,15 @@ AS_IF([test "$GFX_SDL1" = TRUE],
 	    [AS_IF([test "$GFX_SDL2" = TRUE],
 	    		 [],
 			 [AC_MSG_ERROR([*** You must have either SDL1 or SDL2!])])])
+
+# Check for FUSE
+LIBFUSE=
+AS_IF([test "x$with_FUSE" != xno],
+		    [PKG_CHECK_MODULES([fuse], [fuse],
+		    [LIB_FUSE=TRUE],
+		    [if test "x$with_FUSE" != xcheck; then
+		      AC_MSG_FAILURE([--with-FUSE was given, but test for FUSE failed])
+	 	     fi])])
 
 # Checks for header files.
 AC_HEADER_STDC
@@ -132,6 +149,12 @@ CFLAGS="$CFLAGS -DSYSCONFDIR=${sysconfdir}"
 
 # Done
 AC_CONFIG_FILES([Makefile
-                 src/Makefile
-		 tools/Makefile])
+                 src/Makefile])
+# Also make tools
+AC_CONFIG_FILES([tools/Makefile])
+# If we have FUSE, make lmfuse
+AM_CONDITIONAL([COND_LMFUSE],[test "$LIB_FUSE" = TRUE])
+AC_CONFIG_FILES([tools/lmfuse/Makefile])
+#AS_IF([test "$LIB_FUSE" = TRUE],
+#      [AC_CONFIG_FILES([tools/lmfuse/Makefile])])
 AC_OUTPUT

@@ -8,6 +8,7 @@ tools/maketape
 tools/dumptape
 tools/decode_lmfl
 tools/disktool
+tools/lmfuse/lmfuse
 # Emacs backup files
 *~
 # Trace logs
@@ -54,3 +55,4 @@ src/config.h.in
 src/config.h
 src/stamp*
 tools/.deps/
+tools/lmfuse/.deps/
