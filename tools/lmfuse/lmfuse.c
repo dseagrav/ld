@@ -25,6 +25,7 @@
 // Lispm epoch is 1/1/1900
 #define EPOCH_OFFSET 2208988800
 
+#include "config.h"
 #include <fuse.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -671,10 +672,12 @@ int lmfs_getent(char *path,Directory_Entry *dirent){
 	  // Split for filename and file type
 	  path_element_name = strtok_r(path_element,".",&pe_saveptr);
 	  path_element_type = strtok_r(NULL,"/",&pe_saveptr);
-	  if(strstr(path_element_type,"#") != NULL){
+	  if(path_element_type != NULL && strstr(path_element_type,"#") != NULL){
+	    // fprintf(stderr,"LMFS: path_element_type found number sign: %s\n",path_element_type);
 	    path_element_type = strtok_r(path_element_type,"#",&pe_saveptr); // Chop off before #
 	    path_element_version = strtok_r(NULL,"/",&pe_saveptr);           // Chop off version 
 	  }else{
+	    // fprintf(stderr,"LMFS: No version specified in this path element.\n");
 	    path_element_version = NULL;
 	  }
 	}else{
@@ -917,7 +920,7 @@ static int lmfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
       stbuf.st_nlink = 2;      
     }
     // Common stuff
-    stbuf.st_mtimespec.tv_sec = dirent.cdate-EPOCH_OFFSET;
+    stbuf.st_mtime = dirent.cdate-EPOCH_OFFSET;
     stbuf.st_size = dirent.total_size;
     stbuf.st_blocks = dirent.total_size/512;
     if(dirent.total_size > stbuf.st_blocks*512){
@@ -963,7 +966,7 @@ static int lmfs_getattr(const char *path, struct stat *stbuf){
     stbuf->st_nlink = 2;
   }
   // Common stuff
-  stbuf->st_mtimespec.tv_sec = dirent.cdate-EPOCH_OFFSET;
+  stbuf->st_mtime = dirent.cdate-EPOCH_OFFSET;
   stbuf->st_size = dirent.total_size;
   stbuf->st_blksize = 1024;
   stbuf->st_blocks = dirent.total_size/512;

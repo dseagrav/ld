@@ -155,6 +155,4 @@ AC_CONFIG_FILES([tools/Makefile])
 # If we have FUSE, make lmfuse
 AM_CONDITIONAL([COND_LMFUSE],[test "$LIB_FUSE" = TRUE])
 AC_CONFIG_FILES([tools/lmfuse/Makefile])
-#AS_IF([test "$LIB_FUSE" = TRUE],
-#      [AC_CONFIG_FILES([tools/lmfuse/Makefile])])
 AC_OUTPUT
