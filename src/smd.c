@@ -207,6 +207,7 @@ void smd_clock_pulse(){
       SMD_Xfer_Mode = SMD_RCmd.Bus_Word_Mode;
       if(SMD_Xfer_Mode == 1 && ((SMD_Xfer_Addr.raw&0x01) != 0)){ SMD_Xfer_Mode = 0; } // Not on word boundary
       SMD_Controller_State++;
+      // Falls thru
     case 2: // Read
       if(SMD_Xfer_Mode == 1){
 	SMD_IOPB.hword[SMD_Xfer_Count>>1] = multibus_word_read(SMD_Xfer_Addr);
@@ -279,6 +280,11 @@ void smd_clock_pulse(){
       
       // Process command
       switch(SMD_IOPB.Command){
+      case 0x56: // Cold load / LAM does this for some reason.
+	// TREATING THIS AS AN ERROR CORRUPTED MY DISK
+	// Maybe it's read?
+	logmsgf(LT_SMD,0,"SMD: LAM/COLD UNKNOWN COMMAND: Interpreting as READ\n");
+	// Falls thru
       case 0x81: // READ
         SMD_Controller_State = 20;  // READ SETUP
         break;
@@ -349,6 +355,7 @@ void smd_clock_pulse(){
 	SMD_Xfer_Mode = 0; // Not on word boundary
       }
       SMD_Controller_State++;
+      // Falls thru
     case 11: // OBTAIN UIB
       if(SMD_Xfer_Mode == 1){
 	SMD_UIB[SMD_IOPB.Unit].hword[SMD_Xfer_Count>>1] =
@@ -389,7 +396,8 @@ void smd_clock_pulse(){
       SMD_Sector_Counter = 0;
       SMD_Xfer_Addr.raw = SMD_IOPB.Buffer_Address;
       SMD_Xfer_Size = SMD_IOPB.DMA_Burst_Size;
-      SMD_Controller_State++; // Fall into
+      SMD_Controller_State++;
+      // Falls thru
     case 21: // DISK READ SECTOR
       switch(SMD_IOPB.Unit){
       case 0:
@@ -450,7 +458,7 @@ void smd_clock_pulse(){
       SMD_Xfer_Mode = SMD_IOPB.Buffer_WordMode;
       if(SMD_Xfer_Mode == 1 && ((SMD_Xfer_Addr.raw&0x01) != 0)){ SMD_Xfer_Mode = 0; } // Not on word boundary
       SMD_Controller_State++;
-      // Fall into
+      // Falls thru
     case 23: // Write Loop
       {
 	uint16_t BurstOffset = SMD_Xfer_Size*SMD_Burst_Counter;
@@ -490,7 +498,7 @@ void smd_clock_pulse(){
         SMD_Controller_State = 23;
         break;
       }
-      // FALL INTO
+      // Falls thru
     case 26: // Operation completed
       if(SDU_disk_trace){
         logmsgf(LT_SMD,10,"SMD: READ OPERATION COMPLETE: 0x%X bursts, 0x%X sectors of %X completed.\n",
@@ -557,7 +565,7 @@ void smd_clock_pulse(){
         SMD_Controller_State = 31;
         break;
       }
-      // FALL INTO
+      // Falls thru
     case 35: // WRITE SECTOR
       switch(SMD_IOPB.Unit){
       case 0:
@@ -926,7 +934,7 @@ void smd_write(uint8_t addr,uint8_t data){
   case 4: // IOPB Base (lower)
     // Lisp does this; Don't know why.
     SMD_IOPB_Base.raw <<= 8; // Move the other two up
-    // fall into
+    // Falls thru
   case 3: // IOPB Base (lo)
     SMD_IOPB_Base.byte[0] = data;
     break;
