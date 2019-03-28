@@ -1195,7 +1195,7 @@ void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data){
   if(active_console == vn){
     while(mask < 0x10000LL){
       if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
-	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_on;
+	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_on;	
       }else{
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_off;
       }  
@@ -1239,7 +1239,7 @@ void framebuffer_update_byte(int vn,uint32_t addr,uint8_t data){
       if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_on;
       }else{
-	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_off;
+	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_off;	
       }    
       outpos++;
       mask <<= 1;
@@ -1702,7 +1702,7 @@ int sdl_init(int width, int height){
     for (j = 0; j < MAX_VIDEO_HEIGHT; j++)
       *p++ = pixel_off;
   }
-
+  
   // Grab the mouse if we are in direct mode
   if(mouse_op_mode == 0){
     SDL_SetRelativeMouseMode(SDL_TRUE);
@@ -4270,7 +4270,7 @@ int main(int argc, char *argv[]){
 	  exit(-1);
 	}
       }
-      // Command-lide provided yaml option
+      // Command-line provided yaml option
       if(strncmp("--",argv[x],2)==0){
 	if(x+1 < argc){
 	  char *sect = strtok(argv[x],"-");
@@ -4332,17 +4332,6 @@ int main(int argc, char *argv[]){
   // Debug init
   debug_init();
 
-  // Ethernet initialization
-  /* OBSOLETED WHEN 3COM SPLIT
-  if(debug_target_mode < 10){
-    ether_fd = ether_init();
-    if(ether_fd < 0){
-      perror("ether_init()");
-      ether_fd = -1;
-    }
-  }
-  */
-
   // SDL display initialization
   if(debug_target_mode < 10){
     sdl_init(video_width,video_height);
@@ -4358,14 +4347,6 @@ int main(int argc, char *argv[]){
     pS[1].cpu_die_rq = 1; // Stop clock
   }
 #else
-  // Ethernet initialization
-  /*
-  ether_fd = ether_init();
-  if(ether_fd < 0){
-    perror("ether_init()");
-    ether_fd = -1;
-  }
-  */
 
   // SDL display initialization
   sdl_init(video_width,video_height);
@@ -4445,49 +4426,51 @@ int main(int argc, char *argv[]){
     }
     // Update status line
     if(stat_time > 9){
-      char statbuf[512];
+      char statbuf[3][64];
+      char titlebuf[256];
       // Update status line
       extern char tape_fn[];
-      sprintf(statbuf,"LambdaDelta: VC %d | Tape: %s | ",active_console,tape_fn);
+      sprintf(statbuf[0],"LambdaDelta: VC %d | Tape: %s | ",active_console,tape_fn);
       switch(cp_state[active_console]){
       case 0: // Cold (or under 8088 control!)
 	if(pS[active_console].cpu_die_rq){
-	  sprintf(statbuf,"%sCold Halted",statbuf);
+	  sprintf(statbuf[1],"Cold Halted");
 	}else{
-	  sprintf(statbuf,"%sCold Running",statbuf);
+	  sprintf(statbuf[1],"Cold Running");
 	}
 	break;
       case 1: // Bootstrapping
 	if(pS[active_console].cpu_die_rq){
-	  sprintf(statbuf,"%sCold Halted",statbuf);
+	  sprintf(statbuf[1],"Cold Halted");
 	}else{
-	  sprintf(statbuf,"%sCold Booting",statbuf);
+	  sprintf(statbuf[1],"Cold Booting");
 	}
 	break;
       case 2: // Lisp Booting
 	if(pS[active_console].cpu_die_rq){
-	  sprintf(statbuf,"%sLisp Boot Halted",statbuf);
+	  sprintf(statbuf[1],"Lisp Boot Halted");
 	}else{
-	  sprintf(statbuf,"%sLisp Booting",statbuf);
+	  sprintf(statbuf[1],"Lisp Booting");
 	}
 	break;
       case 3: // Lisp Running
 	if(pS[active_console].cpu_die_rq){
-	  sprintf(statbuf,"%sHalted",statbuf);
+	  sprintf(statbuf[1],"Halted");
 	}else{
-	  sprintf(statbuf,"%sRunning",statbuf);
+	  sprintf(statbuf[1],"Running");
 	}
 	break;
       default: // ???
-	sprintf(statbuf,"%sUnknown State %d",statbuf,cp_state[active_console]);
+	sprintf(statbuf[1],"Unknown State %d",cp_state[active_console]);
 	break;
       }
-      sprintf(statbuf,"%s | DT %ld",statbuf,(emu_time-real_time));
+      sprintf(statbuf[2]," | DT %ld",(emu_time-real_time));
+      sprintf(titlebuf,"%s%s%s",statbuf[0],statbuf[1],statbuf[2]);
 #ifdef SDL1
-      SDL_WM_SetCaption(statbuf, "LambdaDelta");
+      SDL_WM_SetCaption(titlebuf, "LambdaDelta");
 #endif
 #ifdef SDL2
-      SDL_SetWindowTitle(SDLWindow, statbuf);
+      SDL_SetWindowTitle(SDLWindow, titlebuf);
 #endif
       stat_time = 0;
     }
