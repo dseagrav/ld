@@ -43,6 +43,8 @@
 static const char *lmfs_dnam = "disk.img";
 static const char *lmfs_dbnd = "LMFS";
 // Globals
+uid_t user_id;               // Who runs us?
+gid_t group_id;              // What group are they in?
 int disk_fd = -1;            // FD for disk image
 uint8_t DISK_BLOCK[1024];    // One disk block
 uint32_t label_block = 0;    // Address of disk label (used for block offsets)
@@ -62,6 +64,7 @@ uint32_t root_size = 0;
 struct lmfs_config {
   char *disk_fname;
   char *band_name;
+  int single_version;
 };
 
 // Configuration alterable by command-line options
@@ -695,7 +698,7 @@ int lmfs_getent(char *path,Directory_Entry *dirent){
 		path_element_name != NULL ? path_element_name : "NULL",
 		path_element_type != NULL ? path_element_type : "NULL",
 		path_element_version != NULL ? path_element_version : "NULL");
-	if(path_element_version != NULL){
+	if(path_element_version != NULL && conf.single_version == 0){
 	  path_element_ver = atoi(path_element_version);
 	}else{
 	  path_element_ver = -1;
@@ -721,7 +724,12 @@ int lmfs_getent(char *path,Directory_Entry *dirent){
 		if(path_element_ver > 0){
 		  // Yes, must match exactly
 		  if(path_element_ver == tgt_dirent.version){
-		    // Match!
+		    // Match! Is it deleted?
+		    if((tgt_dirent.attributes&ATTR_DELETED) != 0){
+		      // Yes, it doesn't exist.
+		      free(DIRECTORY);
+		      return -ENOENT;
+		    }
 		    // Directories cannot have type, so since we have a type we must be at the end of the path.
 		    strcpy(dirent->fname,tgt_dirent.fname);
 		    strcpy(dirent->ftype,tgt_dirent.ftype);
@@ -742,10 +750,13 @@ int lmfs_getent(char *path,Directory_Entry *dirent){
 		}else{
 		  // No, find the newest version
 		  if(tgt_dirent.version > saved_di_version){
-		    // This is newer, save it for later.
-		    fprintf(stderr,"LMFS: Saving dir index %d with version %d\n",dir_index,tgt_dirent.version);		    
-		    saved_dir_index = dir_index;
-		    saved_di_version = tgt_dirent.version;
+		    // This is newer. Is it deleted?
+		    if((tgt_dirent.attributes&ATTR_DELETED) == 0){
+		      // No, save it for later.
+		      fprintf(stderr,"LMFS: Saving dir index %d with version %d\n",dir_index,tgt_dirent.version);
+		      saved_dir_index = dir_index;
+		      saved_di_version = tgt_dirent.version;
+		    }
 		  }
 		  // fprintf(stderr,"LMFS: GETENT: NEWEST VERSION CHECK REQUIRED\n");
 		}
@@ -754,8 +765,14 @@ int lmfs_getent(char *path,Directory_Entry *dirent){
 	      // No. We can accept a directory.
 	      if(strlen(tgt_dirent.ftype) == 0 || strcasecmp(tgt_dirent.ftype,"DIRECTORY") == 0){
 		// Match! Is this the end of the line?
-		if(next_path_element == NULL){		  
-		  // Final destination. Copy to destination dirent
+		if(next_path_element == NULL){
+		  // Final destination. Is it deleted?
+		  if((tgt_dirent.attributes&ATTR_DELETED) != 0){
+		    // Yes, bail
+		    free(DIRECTORY);
+		    return -ENOENT;
+		  }
+		  // No, Copy to destination dirent
 		  strcpy(dirent->fname,tgt_dirent.fname);
 		  strcpy(dirent->ftype,tgt_dirent.ftype);
 		  dirent->version = tgt_dirent.version;
@@ -843,7 +860,6 @@ int lmfs_getent(char *path,Directory_Entry *dirent){
       path_element = next_path_element;
       next_path_element = NULL;
     }
-    
   }
   return -ENOSYS; // Shouldn't get here
 }
@@ -891,48 +907,159 @@ static int lmfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
   filler(buf, ".", NULL, 0);
   filler(buf, "..", NULL, 0);
   // Now the rest
-  while(dir_index < dir_size){
-    // One entry
-    int dirent_len = 0;
-    struct stat stbuf;
-    // Clobber
-    memset((char *)&stbuf, 0, sizeof(struct stat));    
-    // Parse
-    dirent_len = lmfs_parse_dir_entry(DIRECTORY+dir_index,&dirent);
-    if(dirent_len < 0){
-      // Error, bail
-      return dirent_len;
+  // NB: LMFS DOES NOT SORT THE DIRECTORY, NOR DOES IT ENSURE NEWEST IS FIRST!
+  if(conf.single_version != 0){
+    // Generate dirent list
+    Directory_Entry *out_dirent = NULL;
+    int out_count = 0;
+    while(dir_index < dir_size){
+      int dirent_len = 0;
+      int x=0;
+      // Parse stuff
+      dirent_len = lmfs_parse_dir_entry(DIRECTORY+dir_index,&dirent);
+      if(dirent_len < 0){
+	return dirent_len;
+      }
+      // Is this file deleted?
+      if((dirent.attributes&ATTR_DELETED) != 0){
+	free(dirent.map_block);
+	free(dirent.map_block_size);
+	dir_index += dirent_len;
+	continue;
+      }
+      // Do we already have this file?
+      while(x < out_count){
+	if(strcasecmp(dirent.fname,out_dirent[x].fname) == 0 &&
+	   strcasecmp(dirent.ftype,out_dirent[x].ftype) == 0){
+	  // We do! Newer version?
+	  if(dirent.version > out_dirent[x].version){
+	    // Yes, we want to replace it
+	    /*
+	    fprintf(stderr,"VERSION-CHECK: Replacing %s.%s %d with %d\n",
+		    dirent.fname,dirent.ftype,out_dirent[x].version,dirent.version);
+	    */
+	    // Release old map block data
+	    free(out_dirent[x].map_block);
+	    free(out_dirent[x].map_block_size);
+	    // Copy new dirent
+	    memcpy(&out_dirent[x],&dirent,sizeof(Directory_Entry));
+	    // Done
+	    break;
+	  }
+	}
+	x++;
+      }
+      // If this isn't new, loop
+      if(x < out_count){
+	dir_index += dirent_len;
+	continue;
+      }
+      // Otherwise it's new.
+      out_dirent = reallocf(out_dirent,sizeof(Directory_Entry)*(out_count+1));
+      if(out_dirent == NULL){
+	perror("lmfuse: reallocf");
+	return -ENOENT;
+      }
+      // Copy dirent
+      memcpy(&out_dirent[out_count],&dirent,sizeof(Directory_Entry));
+      // Proceed
+      out_count++;
+      dir_index += dirent_len;
     }
-    // Convert stuff to unix
-    // if(strcasecmp(dirent.ftype,"DIRECTORY") != 0){
-    if((dirent.attributes&ATTR_DIRECTORY) == 0){
-      // Regular file. Append type to name.
-      strcat(dirent.fname,".");
-      strcat(dirent.fname,dirent.ftype);
-      // Also append version number
-      sprintf(dirent.fname,"%s#%d",dirent.fname,dirent.version);
-      // Fill stat
-      stbuf.st_mode = S_IFREG | 0660;
-      stbuf.st_nlink = 1;
-    }else{
-      // This is a directory
-      stbuf.st_mode = S_IFDIR | 0750;
-      stbuf.st_nlink = 2;      
+    // printf("SORTED-UNVERSIONED-DIRECTORY: Want to output %d file(s)\n",out_count);
+    dir_index = 0; // Reset
+    while(dir_index < out_count){
+      // We already have parsed directory entries and so on, skip to the filler.
+      struct stat stbuf;
+      // Clobber stat buffer
+      memset((char *)&stbuf, 0, sizeof(struct stat));
+      // Convert stuff to unix
+      if((out_dirent[dir_index].attributes&ATTR_DIRECTORY) == 0){
+	// Regular file. Append type to name.
+	strcat(out_dirent[dir_index].fname,".");
+	strcat(out_dirent[dir_index].fname,out_dirent[dir_index].ftype);
+	// Disregard version number
+	// Fill stat
+	stbuf.st_mode = S_IFREG | 0660;
+	stbuf.st_nlink = 1;
+      }else{
+	// This is a directory
+	stbuf.st_mode = S_IFDIR | 0750;
+	stbuf.st_nlink = 2;
+      }
+      // Common stuff
+      stbuf.st_uid = user_id;
+      stbuf.st_gid = group_id;
+      stbuf.st_mtime = out_dirent[dir_index].cdate-EPOCH_OFFSET;
+      stbuf.st_size = out_dirent[dir_index].total_size;
+      stbuf.st_blocks = out_dirent[dir_index].total_size/512;
+      if(out_dirent[dir_index].total_size > stbuf.st_blocks*512){
+	stbuf.st_blocks++;
+      }
+      stbuf.st_blksize = 1024;
+      // Fill in
+      filler(buf, out_dirent[dir_index].fname, &stbuf, 0);
+      // Next!
+      free(out_dirent[dir_index].map_block);
+      free(out_dirent[dir_index].map_block_size);
+      dir_index++;
     }
-    // Common stuff
-    stbuf.st_mtime = dirent.cdate-EPOCH_OFFSET;
-    stbuf.st_size = dirent.total_size;
-    stbuf.st_blocks = dirent.total_size/512;
-    if(dirent.total_size > stbuf.st_blocks*512){
-      stbuf.st_blocks++;
+  }else{
+    // Straight dump
+    while(dir_index < dir_size){
+      // One entry
+      int dirent_len = 0;
+      struct stat stbuf;
+      // Clobber
+      memset((char *)&stbuf, 0, sizeof(struct stat));
+      // Parse
+      dirent_len = lmfs_parse_dir_entry(DIRECTORY+dir_index,&dirent);
+      if(dirent_len < 0){
+	// Error, bail
+	return dirent_len;
+      }
+      // We should decide if we are going to emit this here.
+
+      // Skip it if it's deleted
+      if((dirent.attributes&ATTR_DELETED) != 0){
+	free(dirent.map_block);
+	free(dirent.map_block_size);
+	dir_index += dirent_len;
+	continue;
+      }
+      // Convert stuff to unix
+      // if(strcasecmp(dirent.ftype,"DIRECTORY") != 0){
+      if((dirent.attributes&ATTR_DIRECTORY) == 0){
+	// Regular file. Append type to name.
+	strcat(dirent.fname,".");
+	strcat(dirent.fname,dirent.ftype);
+	// Also append version number
+	sprintf(dirent.fname,"%s#%d",dirent.fname,dirent.version);
+	// Fill stat
+	stbuf.st_mode = S_IFREG | 0660;
+	stbuf.st_nlink = 1;
+      }else{
+	// This is a directory
+	stbuf.st_mode = S_IFDIR | 0750;
+	stbuf.st_nlink = 2;
+      }
+      // Common stuff
+      stbuf.st_uid = user_id;
+      stbuf.st_gid = group_id;
+      stbuf.st_mtime = dirent.cdate-EPOCH_OFFSET;
+      stbuf.st_size = dirent.total_size;
+      stbuf.st_blocks = dirent.total_size/512;
+      if(dirent.total_size > stbuf.st_blocks*512){
+	stbuf.st_blocks++;
+      }
+      stbuf.st_blksize = 1024;
+      // Fill in
+      filler(buf, dirent.fname, &stbuf, 0);
+      // Next!
+      free(dirent.map_block);
+      free(dirent.map_block_size);
+      dir_index += dirent_len;
     }
-    stbuf.st_blksize = 1024;
-    // Fill in
-    filler(buf, dirent.fname, &stbuf, 0);
-    // Next!
-    free(dirent.map_block);
-    free(dirent.map_block_size);
-    dir_index += dirent_len;
   }
   // filler(buf, lmfs_path + 1, NULL, 0);  
   // All done!
@@ -966,6 +1093,8 @@ static int lmfs_getattr(const char *path, struct stat *stbuf){
     stbuf->st_nlink = 2;
   }
   // Common stuff
+  stbuf->st_uid = user_id;
+  stbuf->st_gid = group_id;
   stbuf->st_mtime = dirent.cdate-EPOCH_OFFSET;
   stbuf->st_size = dirent.total_size;
   stbuf->st_blksize = 1024;
@@ -1008,7 +1137,7 @@ static int lmfs_read(const char *path, char *buf, size_t size, off_t offset,
   int blk_start_bytes = 0;
   int bytes_read = 0;
   // Find this directory entry, if it exists
-  fprintf(stderr,"read(): Want to read %ld bytes at offset %ld in file %s\n",size,offset,path);
+  fprintf(stderr,"read(): Want to read %ld bytes at offset %lld in file %s\n",size,offset,path);
   res = lmfs_getent((char *)path,&dirent);
   if(res < 0){
     fprintf(stderr,"read(): getent blew it!\n");
@@ -1105,6 +1234,7 @@ enum {
 static struct fuse_opt lmfs_opts[] = {
   LMFS_OPT("disk=%s",disk_fname,0),  
   LMFS_OPT("band=%s",band_name,0),
+  LMFS_OPT("single_version",single_version,1),
   FUSE_OPT_KEY("-V",             KEY_VERSION),
   FUSE_OPT_KEY("--version",      KEY_VERSION),
   FUSE_OPT_KEY("-h",             KEY_HELP),
@@ -1121,6 +1251,7 @@ static int lmfs_opt_proc(void *data, const char *arg, int key, struct fuse_args 
 	    "LMFS options:\n"
 	    "    -o disk=(file name) Disk image containing LMFS filesystem\n"
 	    "    -o band=(band name) LMFS band name\n"
+	    "    -o single_version   Pretend older versions of files do not exist (like Unix)\n"
 	    "\n"
 	    "general options:\n"
 	    "    -o opt,[opt...]  mount options\n"
@@ -1158,6 +1289,10 @@ int main(int argc, char *argv[]){
   if(conf.band_name == NULL){
     conf.band_name = (char *)lmfs_dbnd;
   }
+
+  // Obtain UID and GID
+  user_id = getuid();
+  group_id = getgid();
 
   // Obtain disk image
   disk_fd = open(conf.disk_fname,O_RDWR);
@@ -1236,7 +1371,11 @@ int main(int argc, char *argv[]){
     root_size = get24(20); // Bits!
     root_size /= 8;
     printf("LMFS: ROOT DIRECTORY at block %.6X, size %d\n",root_base,root_size);
-    // Initial checks done here. It's unexpected that the PUT or root directory move during operation.    
+    // Initial checks done here. It's unexpected that the PUT or root directory move during operation.
+    if(conf.single_version != 0){
+      printf("LMFS: single file version mode active\n");
+      conf.single_version = 1;
+    }
   }
   // Should be all ready to rock!  
   x = fuse_main(args.argc, args.argv, &lmfs_oper, NULL);
