@@ -358,8 +358,10 @@ int ether_init(){
     return(err);
   }
 
-  // Don't echo my own packets back to me
-  y = 0;
+  // Echo our packets back to us, we'll filter them.
+  // This won't let me talk to the local IP stack (on Mac OS Mojave and below, at least)
+  // but it will let me talk to another BPF instance on the same machine.
+  y = 1;
   err = ioctl(fd, BIOCSSEESENT,(void *)&y);
   if(err < 0){
     close(fd);
@@ -828,6 +830,19 @@ void enet_clock_pulse(){
         // uint16_t hdr = ((pktlen+2)<<1);
         uint16_t hdr = (pktlen+2);
         if(hdr&0x01){ hdr++; }
+#if !defined (HAVE_LINUX_IF_H) && defined (HAVE_NET_BPF_H)
+	// Did we transmit this?
+	if(ether_rx_buf[10] == ETH_Addr_RAM[0] &&
+	   ether_rx_buf[11] == ETH_Addr_RAM[1] &&
+	   ether_rx_buf[12] == ETH_Addr_RAM[2] &&
+	   ether_rx_buf[13] == ETH_Addr_RAM[3] &&
+	   ether_rx_buf[14] == ETH_Addr_RAM[4] &&
+	   ether_rx_buf[15] == ETH_Addr_RAM[5]){
+	  // Yes, ignore it.
+	  return;
+	}
+#endif
+	// Is it for us?
         if(!(ether_rx_buf[4] == ETH_Addr_RAM[0] &&
              ether_rx_buf[5] == ETH_Addr_RAM[1] &&
              ether_rx_buf[6] == ETH_Addr_RAM[2] &&
