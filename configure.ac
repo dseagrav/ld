@@ -138,6 +138,9 @@ AC_TYPE_UINT64_T
 AC_TYPE_UINT8_T
 AC_TYPE_UID_T
 
+AX_CHECK_COMPILE_FLAG([-Wno-packed-bitfield-compat], [CFLAGS="$CFLAGS -Wno-packed-bitfield-compat"])
+AX_CHECK_COMPILE_FLAG([-Og], [CFLAGS="$CFLAGS -Og"])
+
 # Checks for library functions.
 AC_FUNC_MALLOC
 AC_FUNC_REALLOC
