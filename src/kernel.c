@@ -721,15 +721,29 @@ void kbd_handle_char(int symcode, int down){
   }
 
   // Check for return-to-newboot key
+  // This simulates pressing a boot chord because doing it on the PC is a chore.
+  // The real keyboard will send all bits as normal until the last key of a chord is pressed,
+  // at which point it sends one of these sequences instead of the final down key packet.
+  // After that, all key-up packets are sent as normal.
+  // For our purposes it is not necessary to generate the key down and key up messages, just the
+  // chord packet.
   if(sdlchar == SDLK_F11){
-    // Keystroke is control-meta-control-meta-<LINE>
-    // 0020 0045 0026 0165 0036
+    // The chord we simulate is control-meta-control-meta-<LINE>
+    // This causes the SDU to halt the Lambda at the next "safe" place.
     if(down){
-      // I don't know how this translates to that, but it works.
-      // This is the sequence of bytes the ucode looks for.
       put_rx_ring(active_console,0x60);
       put_rx_ring(active_console,0x9F);
     }
+    // The other boot chords are:
+    // control-meta-control-meta-<END>
+    // This causes the SDU to halt the Lambda immediately.
+    // It sends 0x43 0xBC
+    // control-meta-control-meta-<RUBOUT>
+    // This causes the SDU to trigger a cold boot of the Lambda.
+    // It sends 0x5D 0xA2
+    // control-meta-control-meta-<RETURN>
+    // This causes the SDU to trigger a warm boot of the Lambda.
+    // It sends 0x2E 0xD1
     return;
   }
 
@@ -792,7 +806,7 @@ void kbd_handle_char(int symcode, int down){
   // Obtain keymap entry
   outchar = map[sdlchar];
 
-  // We send 3 characters. First is keycode, second is key state + bucky bits, third is source ID.
+  // We send 2 characters. First is keycode, second is key state + bucky bits.
   put_rx_ring(active_console,outchar); // Keycode
   // Next is key up/down state and bucky bits
   outchar = 0x80; // This is the "second byte" flag  
@@ -823,8 +837,6 @@ void kbd_handle_char(int symcode, int down){
   }
   // Send result
   put_rx_ring(active_console,outchar);
-  // Third byte is Source ID.
-  put_rx_ring(active_console,0x02); // (Newer Keyboard)
 
   // printf("KB: Key event sent\n");
   vcmem_kb_int(active_console);
@@ -1282,14 +1294,28 @@ void kbd_handle_char(int scancode, int down){
 
   // Check for return-to-newboot key
   if(sdlchar == SDL_SCANCODE_F11){
-    // Keystroke is control-meta-control-meta-<LINE>
-    // 0020 0045 0026 0165 0036
+    // This simulates pressing a boot chord because doing it on the PC is a chore.
+    // The real keyboard will send all bits as normal until the last key of a chord is pressed,
+    // at which point it sends one of these sequences instead of the final down key packet.
+    // After that, all key-up packets are sent as normal.
+    // For our purposes it is not necessary to generate the key down and key up messages, just the
+    // chord packet.
     if(down){
-      // I don't know how this translates to that, but it works.
-      // This is the sequence of bytes the ucode looks for.
+      // The chord we simulate is control-meta-control-meta-<LINE>
+      // This causes the SDU to halt the Lambda at the next "safe" place.
       put_rx_ring(active_console,0x60);
       put_rx_ring(active_console,0x9F);
     }
+    // The other boot chords are:
+    // control-meta-control-meta-<END>
+    // This causes the SDU to halt the Lambda immediately.
+    // It sends 0x43 0xBC
+    // control-meta-control-meta-<RUBOUT>
+    // This causes the SDU to trigger a cold boot of the Lambda.
+    // It sends 0x5D 0xA2
+    // control-meta-control-meta-<RETURN>
+    // This causes the SDU to trigger a warm boot of the Lambda.
+    // It sends 0x2E 0xD1
     return;
   }
 
@@ -1350,7 +1376,7 @@ void kbd_handle_char(int scancode, int down){
   // Obtain keymap entry
   outchar = map[sdlchar];
 
-  // We send 3 characters. First is keycode, second is key state + bucky bits, third is source ID.
+  // We send 2 characters. First is keycode, second is key state + bucky bits.
   put_rx_ring(active_console,outchar); // Keycode
   // Next is key up/down state and bucky bits
   outchar = 0x80; // This is the "second byte" flag
@@ -1381,8 +1407,6 @@ void kbd_handle_char(int scancode, int down){
   }
   // Send result
   put_rx_ring(active_console,outchar);
-  // Third byte is Source ID.
-  put_rx_ring(active_console,0x02); // (Newer Keyboard)
 }
 
 void sdl_system_shutdown_request(void){
@@ -4464,7 +4488,7 @@ int main(int argc, char *argv[]){
 	sprintf(statbuf[1],"Unknown State %d",cp_state[active_console]);
 	break;
       }
-      sprintf(statbuf[2]," | DT %ld",(emu_time-real_time));
+      sprintf(statbuf[2]," | DT %lld",(emu_time-real_time));
       sprintf(titlebuf,"%s%s%s",statbuf[0],statbuf[1],statbuf[2]);
 #ifdef SDL1
       SDL_WM_SetCaption(titlebuf, "LambdaDelta");
