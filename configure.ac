@@ -5,6 +5,7 @@ AC_PREREQ([2.69])
 AC_INIT([ld], [0.98.2], [dseagrav@lunar-tokyo.net])
 AC_CONFIG_SRCDIR([src/kernel.c])
 AC_CONFIG_HEADERS([src/config.h])
+AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE
 
 # Checks for programs.
@@ -136,6 +137,9 @@ AC_TYPE_UINT32_T
 AC_TYPE_UINT64_T
 AC_TYPE_UINT8_T
 AC_TYPE_UID_T
+
+AX_CHECK_COMPILE_FLAG([-Wno-packed-bitfield-compat], [CFLAGS="$CFLAGS -Wno-packed-bitfield-compat"])
+AX_CHECK_COMPILE_FLAG([-Og], [CFLAGS="$CFLAGS -Og"])
 
 # Checks for library functions.
 AC_FUNC_MALLOC

@@ -41,6 +41,7 @@
 // TCP socket
 #include <netinet/in.h>
 #include <netdb.h> 
+#include <sys/socket.h>
 
 #ifdef HAVE_YAML_H
 // YAML

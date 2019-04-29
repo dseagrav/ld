@@ -955,9 +955,9 @@ static int lmfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	continue;
       }
       // Otherwise it's new.
-      out_dirent = reallocf(out_dirent,sizeof(Directory_Entry)*(out_count+1));
+      out_dirent = realloc(out_dirent,sizeof(Directory_Entry)*(out_count+1));
       if(out_dirent == NULL){
-	perror("lmfuse: reallocf");
+	perror("lmfuse: realloc");
 	return -ENOENT;
       }
       // Copy dirent
