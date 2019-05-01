@@ -190,17 +190,14 @@ of the standard typewriter keys. The other keys are mapped as follows:
 |------------|-------------|----------------------------------------|
 | [          | (           | [ is the shift state, ( is unshifted   |
 | ]          | )           | ] is the shift state, ) is unshifted   |
-|------------|-------------|----------------------------------------|
 | RETURN     | ENTER       |                                        |
 | BACKSPACE  | RUBOUT      |                                        |
 | UP         | HAND UP     |                                        |
 | DOWN       | HAND DOWN   |                                        |
 | LEFT       | HAND LEFT   |                                        |
 | RIGHT      | HAND RIGHT  |                                        |
-|------------|-------------|----------------------------------------|
 | PAGE UP    | ABORT       |                                        |
 | PAGE DOWN  | RESUME      |                                        |
-|------------|-------------|----------------------------------------|
 | F1         | SYSTEM      |                                        |
 | F2         | NETWORK     |                                        |
 | F3         | STATUS      |                                        |
@@ -208,11 +205,9 @@ of the standard typewriter keys. The other keys are mapped as follows:
 | F5         | HELP        |                                        |
 | F6         | CLEAR       |                                        |
 | F7         | BREAK       |                                        |
-|------------|-------------|----------------------------------------|
 | RIGHT CTRL | LEFT GREEK  |                                        |
 | RIGHT ALT  | LEFT SUPER  |                                        |
 | LEFT ALT   | LEFT META   |                                        |
-|------------|-------------|----------------------------------------|
 | RIGHT FLAG | RIGHT SUPER | Does not always work on some platforms |
 | LEFT FLAG  | LEFT SUPER  | Does not always work on some platforms |
 | MENU       | RIGHT HYPER |                                        |
