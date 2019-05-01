@@ -110,6 +110,9 @@ This is the new configuration method that is intended to be used going
 forward. The YAML configuration file is named `lam.yml` and is searched
 for in the following places, in order: 
 
+<!-- TODO: make this a link to the file -->
+*Note:* If you do not have libyaml on your system (or do not wish to install it), please see doc/OLDCONF.md for the legacy configuration system..
+
 1. The directory specified in `SYSCONFDIR` if it was defined during build.
 2. The user's home directory, as determined by:
     1. The `$HOME` environment variable, or if that is not defined:
@@ -178,7 +181,7 @@ F11 simulates the "return to newboot" keyboard chord, which terminates Lisp
 F12 causes the active tape image file to rotate to the next file in
   ASCIIbetical order. Pressing control and F12 at the same time causes
   the emulator to dump its state into a bunch of .DUMP files. These files
-  are human-readable but not necessarily human-understandable. (Is is our
+  are human-readable but not necessarily human-understandable. (It is our
   understanding that whether or not the developers are classified as human
   is a subject of ongoing debate.)
 
