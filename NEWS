@@ -24,3 +24,22 @@ VERSION 0.98.2
     functions will fail.
   * Cache is not implemented. This incurs a speed penalty.
 
+VERSION 0.98.3
+  This version is sufficient to run a single Lambda in real-time
+  on a sufficiently fast machine.
+
+  IMPROVEMENTS:
+  * There have been many bug fixes.
+  * Many items have been made configurable.
+  * Support for physical LMI keyboards on serial interfaces has been added.
+  * Tools for manipulating disk images, including a FUSE-based LMFS driver,
+    were added.
+  * A new YAML-based configuration replaced the old configuration file.
+  * The documentation was Markdown-ified.
+
+  KNOWN ISSUES:
+  * SM clock stepping is still incomplete, meaning some debugging and
+    diagnostic functions will fail. Most seen in the normal operation
+    of the system work as intended.
+  * Cache is still not implemented, which incurs a speed penalty
+    when the Lambda must wait for the bus.
