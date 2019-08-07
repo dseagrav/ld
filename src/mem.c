@@ -32,7 +32,11 @@
 // #define RAM_TOP 0x1000000 // 16MB
 
 // Memory
+#ifdef CONFIG_2X2
+unsigned char MEM_RAM[4][RAM_TOP];
+#else
 unsigned char MEM_RAM[2][RAM_TOP];
+#endif
 // static uint8_t prom_string[0x12] = "LMI 8-MEGABYTE";
 uint8_t MEM_ROM[2048];
 
@@ -43,6 +47,10 @@ extern int ld_die_rq;
 void mem_init(){
   bzero(MEM_RAM[0],RAM_TOP);
   bzero(MEM_RAM[1],RAM_TOP);
+#ifdef CONFIG_2X2
+  bzero(MEM_RAM[2],RAM_TOP);
+  bzero(MEM_RAM[3],RAM_TOP);
+#endif
 }
 
 uint8_t debug_mem_read(uint32_t addr){
@@ -57,10 +65,23 @@ void mem_clock_pulse(){
   // If the bus is busy and not acknowledged...
   if(NUbus_Busy == 2 && NUbus_acknowledge == 0){
     // Is it us?
-    if(NUbus_Address.Card == 0xF9 || NUbus_Address.Card == 0xFA){
+    if(NUbus_Address.Card == 0xF9 || NUbus_Address.Card == 0xFA
+#ifdef CONFIG_2X2
+       || NUbus_Address.Card == 0xFD || NUbus_Address.Card == 0xFE
+#endif
+       ){
       int Card = 0;
-      if(NUbus_Address.Card == 0xFA){
-	Card = 1; 
+      switch(NUbus_Address.Card){
+      case 0xF9:
+	Card = 0; break;
+      case 0xFA:
+	Card = 1; break;
+#ifdef CONFIG_2X2
+      case 0xFD:
+	Card = 2; break;
+      case 0xFE:
+	Card = 3; break;
+#endif
       }
       // Yes, answer
       switch(NUbus_Address.Addr){
