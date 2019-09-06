@@ -33,8 +33,9 @@ roms/*
 # Disk and tape image files
 disks/*
 tapes/*
-# The configuration file
+# The configuration files
 ld.conf
+lam.yml
 # Autoconf stuff
 aclocal.m4
 autom4te.cache/
