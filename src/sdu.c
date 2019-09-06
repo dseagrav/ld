@@ -179,7 +179,7 @@ extern uint8_t bsp;
 int SDU_state=0;
 
 // Multibus mastership mutex (prevents races for the nubus)
-pthread_mutex_t multibus_master_mutex = PTHREAD_MUTEX_INITIALIZER;
+// pthread_mutex_t multibus_master_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Temporary - for debugging
 uint8_t SDU_RAM_trace = 0;
@@ -322,6 +322,8 @@ char proc_conf_q_names[sizeof(processor_configuration_qs)/4][64] = {
 };
 
 // Functions
+// We no longer need to track multibus mastership
+/*
 void take_multibus_mastership(){
   // Seize the multibus master mutex
   int result = pthread_mutex_lock(&multibus_master_mutex);
@@ -340,6 +342,7 @@ void release_multibus_mastership(){
     exit(-1);
   }
 }
+*/
 
 void rtc_update_localtime(int force_p){
   // RTC initialization
@@ -1117,7 +1120,7 @@ uint16_t multibus_word_read(mbAddr addr){
   if(MNA_MAP[addr.Page].Enable != 0){
     nuAddr MNB_Addr;
     // Obtain multibus if we don't already have it
-    take_multibus_mastership();
+    // take_multibus_mastership();
     // Perform mapping
     MNB_Addr.Page = MNA_MAP[addr.Page].NUbus_Page;
     MNB_Addr.Offset = addr.Offset;
@@ -1147,17 +1150,17 @@ uint16_t multibus_word_read(mbAddr addr){
       if(NUbus_Address.Byte == 1){
 	uint16_t result = NUbus_Data.hword[0];
 	release_nubus_mastership();
-	release_multibus_mastership();
+	// release_multibus_mastership();
 	return(result);
       }else{
 	uint16_t result = NUbus_Data.hword[1];
 	release_nubus_mastership();
-	release_multibus_mastership();
+	// release_multibus_mastership();
 	return(result);
       }
     }
     release_nubus_mastership();
-    release_multibus_mastership();
+    // release_multibus_mastership();
     return(0xFFFF);
   }
 
@@ -1179,7 +1182,7 @@ uint8_t multibus_read(mbAddr addr){
   if(MNA_MAP[addr.Page].Enable != 0){
     nuAddr MNB_Addr;
     // Obtain multibus if we don't already have it
-    take_multibus_mastership();
+    // take_multibus_mastership();
     // Map address
     MNB_Addr.Page = MNA_MAP[addr.Page].NUbus_Page;
     MNB_Addr.Offset = addr.Offset;
@@ -1207,11 +1210,11 @@ uint8_t multibus_read(mbAddr addr){
     if(NUbus_acknowledge != 0){
       uint8_t result = NUbus_Data.byte[NUbus_Address.Byte];
       release_nubus_mastership();
-      release_multibus_mastership();
+      // release_multibus_mastership();
       return(result);
     }
     release_nubus_mastership();
-    release_multibus_mastership();
+    // release_multibus_mastership();
     return(0xFF);
   }
 
@@ -1456,7 +1459,7 @@ void multibus_word_write(mbAddr addr,uint16_t data){
   if(MNA_MAP[addr.Page].Enable != 0){
     nuAddr MNB_Addr;
     // Obtain multibus if we don't already have it
-    take_multibus_mastership();
+    // take_multibus_mastership();
     // Map address
     uint32_t Word = data;
     MNB_Addr.Page = MNA_MAP[addr.Page].NUbus_Page;
@@ -1484,7 +1487,7 @@ void multibus_word_write(mbAddr addr,uint16_t data){
       nubus_timeout_reg = 0;
     }
     release_nubus_mastership();
-    release_multibus_mastership();
+    // release_multibus_mastership();
     return;
   }
 
@@ -1504,7 +1507,7 @@ void multibus_write(mbAddr addr,uint8_t data){
   if(MNA_MAP[addr.Page].Enable != 0){
     nuAddr MNB_Addr;
     // Obtain multibus if we don't already have it
-    take_multibus_mastership();
+    // take_multibus_mastership();
     // Map address
     uint32_t Word = data;
     MNB_Addr.Page = MNA_MAP[addr.Page].NUbus_Page;
@@ -1532,7 +1535,7 @@ void multibus_write(mbAddr addr,uint8_t data){
       nubus_timeout_reg = 0;
     }
     release_nubus_mastership();
-    release_multibus_mastership();
+    // release_multibus_mastership();
     return;
   }
 

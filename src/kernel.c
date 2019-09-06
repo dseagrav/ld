@@ -4609,10 +4609,12 @@ int main(int argc, char *argv[]){
       printf("Unable to initialize nubus master mutex.\n");
       return(-1);
     }
+    /* No longer needed
     if(pthread_mutex_init(&multibus_master_mutex, &mutex_attr) != 0){
       printf("Unable to initialize multibus master mutex.\n");
       return(-1);
     }
+    */
     // Also initialize Lambda cache write-check mutexes
     if(pthread_mutex_init(&cache_wc_mutex[0], &mutex_attr) != 0){
       printf("Unable to initialize Lambda 0 cache write-check mutex.\n");
@@ -4693,7 +4695,7 @@ int main(int argc, char *argv[]){
 #ifdef CONFIG_2X2
   pthread_mutex_destroy(&cache_wc_mutex[1]);
 #endif
-  pthread_mutex_destroy(&multibus_master_mutex);
+  // pthread_mutex_destroy(&multibus_master_mutex);
   pthread_mutex_destroy(&nubus_master_mutex);
 
   // Here is the old run loop...

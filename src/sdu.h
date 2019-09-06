@@ -21,7 +21,7 @@ void sdu_init();
 void sdu_clock_pulse();
 void *sdu_thread(void *arg);
 
-extern pthread_mutex_t multibus_master_mutex;
+// extern pthread_mutex_t multibus_master_mutex;
 
 #ifdef HAVE_YAML_H
 int yaml_sdu_mapping_loop(yaml_parser_t *parser);
