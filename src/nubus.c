@@ -164,14 +164,39 @@ void nubus_xfer(int access, int master, uint32_t address, uint32_t data){
 void nubus_clock_pulse(){
   if(NUbus_Busy > 0){
     // Drive slaves here
-    sdu_clock_pulse();
-    mem_clock_pulse();
-    vcmem_clock_pulse(0);
-    lambda_nubus_pulse(0);
+    switch(NUbus_Address.Card){
+    case 0xF0: // LAMBDA 0
+      lambda_nubus_pulse(0);
+      break;
+
 #ifdef CONFIG_2X2
-    vcmem_clock_pulse(1);
-    lambda_nubus_pulse(1);
+    case 0xF4: // LAMBDA 1
+      lambda_nubus_pulse(1);
+      break;
 #endif
+
+    case 0xF8: // VCMEM 0
+      vcmem_clock_pulse(0);
+      break;
+
+#ifdef CONFIG_2X2
+    case 0xFC: // VCMEM 1
+      vcmem_clock_pulse(1);
+#endif
+
+    case 0xF9: // MEM 0
+    case 0xFA: // MEM 1
+#ifdef CONFIG_2X2
+    case 0xFD: // MEM 2
+    case 0xFE: // MEM 3
+#endif
+      mem_clock_pulse();
+      break;
+
+    case 0xFF: // SDU
+      sdu_clock_pulse();
+      break;
+    }
 
     // Advance bus state
     NUbus_Busy--;
