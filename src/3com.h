@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
 
@@ -20,6 +20,7 @@
 
 /* 3Com 3C400 Multibus Ethernet */
 
+void *enet_thread(void *arg);
 void enet_clock_pulse();
 void enet_reset();
 uint8_t enet_read(uint16_t addr);

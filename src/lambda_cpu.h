@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
 
    This file is part of LambdaDelta.
@@ -288,7 +288,7 @@ typedef union rCSM_Word {
     uint8_t Lambda_STREQ:1;
     uint8_t Lambda_BREQ:1;
     uint8_t Request_Noted_L:1; // Defaulted HI if not spec'd
-    uint8_t Parity:4;    
+    uint8_t Parity:4;
   } __attribute__((packed));
 } CSM_Word;
 
@@ -318,6 +318,10 @@ struct lambdaState {
   uint32_t Amemory[1024*4];    // A-memory (1KW on Raven)
   uint32_t Mmemory[1024*4];    // M-memory and PDLmemory (see DP_Mode)
   uint32_t MIDmemory[1024*4];  // Macro-Instruction-Dispatch-memory
+  uint32_t Cache_Sector_Addr[256]; // Base address of cache sector
+  uint8_t  Cache_Sector_Age[256];  // Order of cache sector allocation
+  volatile nuData   Cache_Data[256][4];    // Cache data
+  volatile uint8_t  Cache_Status[256][4];  // Status bits for cache entry
 
   MicroAddr loc_ctr_reg;        // (Micro)Location Counter Register -- Address of NEXT instruction
   uint32_t loc_ctr_cnt;         // (Micro)Location Counter Register -- Address of CURRENT instruction
@@ -366,6 +370,16 @@ struct lambdaState {
   uint16_t History_Pointer;     // HPTR, 12 bits (docs say 10, diags test for 12)
   uint16_t History_RAM[0x1000]; // HRAM, 16 bits
 
+  /* Local Bus Interface */
+  int      NUbus_Master;        // Are we the nubus master?
+  volatile int LCbus_error;
+  volatile int LCbus_Busy;
+  volatile int LCbus_acknowledge;
+  volatile nuAddr LCbus_Address;
+  volatile nuData LCbus_Data;
+  volatile nuData LCbus_Block[4];     // Block Transfer Hack
+  volatile int LCbus_Request;
+
   /* Others */
   Q        MIregister;                // Macroinstruction Register
   uint8_t  mirInvalid;                // MIR validity
@@ -380,7 +394,7 @@ struct lambdaState {
   bool     ALU_Fixnum_Oflow;          // FIXNUM Overflow
   bool     imod_en;                   // Enable IMOD
   bool     spy_wrote_ireg;            // Spy wrote the IR, so don't fetch over it.
-  DispatchWord disp_word;             // Dispatch operation word  
+  DispatchWord disp_word;             // Dispatch operation word
   uint32_t imod_lo,imod_hi;           // IMOD storage
   uint32_t Multiplier_Input;          // Multiplier input
   uint32_t Multiplier_Output;         // Multiplier output
@@ -392,7 +406,7 @@ struct lambdaState {
   bool cram_write_cyc;              // CRAM write cycle (or map)
 
   int SM_Clock;                     // State Machine Clock
-  
+
   // Software flags (Nonexistent on real hardware)
   uint8_t NUbus_ID;                 // Bus slot for this processor (RG board slot?)
   bool test_true;                   // Condition Test True
@@ -404,16 +418,31 @@ struct lambdaState {
   bool microtrace;                  // Microcode tracing enable
   bool macrotrace;                  // Macrocode tracing enable
   uint16_t Next_History_Pointer;    // Next HPTR, 12 bits
+  uint8_t Cache_Permit;             // Allow cache hit
+  uint8_t Packetize_Writes;         // Write-through cache in block transfers
+  uint8_t Packet_Code;              // Size of block transfer used
+  int Cache_Resolved;               // Did we look this up in cache?
+  int Cache_Sector_Hit;             // Did we find it in a sector?
+  int Cache_Sector;                 // What sector?
+  int Cache_Oldest_Sector;          // Which sector is oldest? (For eviction purposes)
+  pthread_mutex_t cache_wc_mutex;   // Used to prevent nubus write check from updating evicted sectors
+  volatile int SM_Clock_Pulse;      // Used to generate SM clock pulses
+  volatile Processor_Mode_Reg *SM_Old_PMR; // Old PMR value used when making SM clock pulses
 
   // Performance monitoring
   volatile unsigned long cycle_count;
   volatile unsigned long stall_count;
+  volatile int64_t delta_time;
 };
 
-/* Functions */
+/* Cache write-check mutexes */
+extern pthread_mutex_t cache_wc_mutex[];
 
+/* Functions */
 void lambda_initialize(int I,int ID);
+void lambda_nubus_pulse(int I);
 void lambda_clockpulse(int I);
+void *lam_thread(void *arg);
+void cache_write_check(int access, int I, uint32_t address, uint32_t data);
 void shadow_write(uint32_t addr,Q data);
 Q shadow_read(uint32_t addr);
-

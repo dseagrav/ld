@@ -105,6 +105,7 @@ AS_IF([test "x$with_FUSE" != xno],
 
 # Checks for header files.
 AC_HEADER_STDC
+AC_CHECK_HEADERS(pthread.h,, [AC_MSG_ERROR([*** POSIX Threads are now required.])])
 AC_CHECK_HEADERS([fcntl.h netdb.h netinet/in.h arpa/inet.h stddef.h stdint.h stdlib.h string.h strings.h])
 AC_CHECK_HEADERS([ sys/ioctl.h sys/socket.h sys/time.h unistd.h termios.h utime.h])
 AC_CHECK_HEADERS([linux/if.h], [], [],
@@ -146,7 +147,11 @@ AC_FUNC_MALLOC
 AC_FUNC_REALLOC
 AC_STRUCT_ST_BLOCKS
 AC_CHECK_FUNCS([atexit bzero inet_ntoa gethostbyname memset socket strcasecmp strdup strtol strchr])
-AC_CHECK_FUNCS([gettimeofday mkdir strerror strstr utime])
+AC_CHECK_FUNCS([gettimeofday clock_gettime  mkdir strerror strstr utime])
+
+# Check for POSIX Threads
+# Are CFLAGS *AND* LIBS really necessary?
+AC_CHECK_LIB(pthread, pthread_create, [CFLAGS="$CFLAGS -pthread" LIBS="$LIBS -pthread"])
 
 # Path propagation
 CFLAGS="$CFLAGS -DSYSCONFDIR=${sysconfdir}"

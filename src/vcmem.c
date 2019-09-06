@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
 
@@ -25,6 +25,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <strings.h>
+#include <pthread.h>
 
 #include "ld.h"
 #include "nubus.h"
@@ -68,36 +69,45 @@ void vcmem_kb_int(int vn){
   // but it hasn't been touched yet
   if(vcS[vn].MemoryControl.InterruptEnabled != 0){
     vcS[vn].InterruptStatus.SerialFIFOFull = 1;
-    if(NUbus_Busy == 0){    
-      nubus_io_request(VM_WRITE,0xF4,vcS[vn].InterruptAddr,0xFFFFFFFF);
-      // logmsgf(LT_VCMEM,,"VCMEM: Int generated\n");
-    }else{
-      logmsgf(LT_VCMEM,0,"VCMEM: KB int while bus busy\n");
+    // Obtain bus
+    take_nubus_mastership();
+    // Issue write
+    nubus_io_request(VM_WRITE,vcS[vn].Card,vcS[vn].InterruptAddr,0xFFFFFFFF);
+    // Await completion or error
+    while(NUbus_Busy != 0 && NUbus_error == 0 && NUbus_acknowledge == 0){
+      nubus_clock_pulse();
     }
+    // Release bus
+    release_nubus_mastership();
   }
 }
 //  has last write whatsoever (except 0 and 0x70)
 unsigned char last_kbd_ctrl_write = 0;
 
-void vcmem_clock_pulse(int vn){
-  // Time has passed...
-  vcS[vn].cycle_count++;
-  // There are 5000000 cycles per second, so 83335 per blank
-  if(vcS[vn].cycle_count >= 83335){
-    // We should test the global enable in the function register first, but it hasn't been touched yet
-    if(vcS[vn].MemoryControl.InterruptEnabled != 0){
-      // Vertical Blank
-      vcS[vn].InterruptStatus.VerticalBlank = 1;
-      if(NUbus_Busy == 0){
-	// We can has bus
-	nubus_io_request(VM_WRITE,0xF4,vcS[vn].InterruptAddr,0xFFFFFFFF);
-	vcS[vn].cycle_count = 0;
-	// logmsgf(LT_VCMEM,,"VCMEM: VB Int generated\n");
-      }
-    }else{
-      vcS[vn].cycle_count = 0; // No interrupt, carry on
+// This used to be called at 1 MHz by the console thread.
+// Now we call it directly 60 times a second.
+void vcmem_vblank(int vn){
+  // We should test the global enable in the function register first, but it hasn't been touched yet
+  if(vcS[vn].MemoryControl.InterruptEnabled != 0){
+    // Vertical Blank
+    vcS[vn].InterruptStatus.VerticalBlank = 1;
+    // Obtain bus
+    take_nubus_mastership();
+    // Issue the write
+    nubus_io_request(VM_WRITE,vcS[vn].Card,vcS[vn].InterruptAddr,0xFFFFFFFF);
+    // Await completion or error
+    while(NUbus_Busy != 0 && NUbus_error == 0 && NUbus_acknowledge == 0){
+      nubus_clock_pulse();
     }
+    // Release bus
+    release_nubus_mastership();
+    // logmsgf(LT_VCMEM,,"VCMEM: VB Int generated\n");
+  }else{
+    vcS[vn].cycle_count = 0; // No interrupt, carry on
   }
+}
+
+void vcmem_clock_pulse(int vn){
   // *** NUBUS SLAVE ***
   // If the bus is busy and not acknowledged...
   if(NUbus_Busy == 2 && NUbus_acknowledge == 0){
@@ -125,9 +135,9 @@ void vcmem_clock_pulse(int vn){
 	  NUbus_acknowledge=1;
 	  return;
 	}
-	
+
 	break;
-      case 0x01: 
+      case 0x01:
 	if(NUbus_Request == VM_BYTE_READ){
 	  logmsgf(LT_VCMEM,10,"VCMEM: Function Reg Hi Byte Read\n");
 	  NUbus_Data.byte[1] = vcS[vn].Function.byte[1];
@@ -139,9 +149,9 @@ void vcmem_clock_pulse(int vn){
 	  vcS[vn].Function.byte[1] = NUbus_Data.byte[1];
 	  NUbus_acknowledge=1;
 	  return;
-	}	
+	}
 	break;
-	
+
       case 0x04: // 04 = Memory Control register
 	if(NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ){
 	  logmsgf(LT_VCMEM,10,"VCMEM: Memory Control Reg Read\n");
@@ -170,7 +180,7 @@ void vcmem_clock_pulse(int vn){
 	  set_bow_mode(vn,vcS[vn].MemoryControl.ReverseVideo ? 1 : 0); // Update black-on-white mode
 	  NUbus_acknowledge=1;
 	  return;
-	}	
+	}
 	break;
 
 
@@ -223,7 +233,7 @@ void vcmem_clock_pulse(int vn){
 	  return;
 	}
 	break;
-		
+
       case 0x10: // Serial Port Control Register
 	if(NUbus_Request == VM_WRITE){
 	  logmsgf(LT_VCMEM,10,"VCMEM: Serial Port Control Reg Write: 0x%X\n",NUbus_Data.word);
@@ -307,15 +317,15 @@ void vcmem_clock_pulse(int vn){
 	  }
 	  // logmsgf(LT_VCMEM,,"\n");
 	  NUbus_acknowledge=1;
-	  return;		
+	  return;
 	}
 	if(NUbus_Request == VM_WRITE || NUbus_Request == VM_BYTE_WRITE){
 	  if(NUbus_trace == 1){
 	    logmsgf(LT_VCMEM,10,"VCMEM: Serial Port A Data = 0x%X\n",NUbus_Data.byte[0]);
 	  }
 	  NUbus_acknowledge=1;
-	  return;	
-	}	
+	  return;
+	}
 	break;
 
       case 0x34: // Serial Port A (Keyboard) Command
@@ -323,7 +333,7 @@ void vcmem_clock_pulse(int vn){
 	  if(NUbus_trace == 1){
 	    logmsgf(LT_VCMEM,10,"VCMEM: Serial Port A Command = 0x%X\n",NUbus_Data.byte[0]);
 	  }
-#ifndef XBEEP
+#if defined(CONFIG_PHYSKBD) || !defined(XBEEP)
 	  // Old beep hack, replaced by actual audio in SDL2
 	  // BV tracing beep, starting from uc-hacks:
           // It seems every other write is a register number, and the other is the value.
@@ -336,13 +346,13 @@ void vcmem_clock_pulse(int vn){
             // many continuous 0 writes, it seems - ignore those
             if (last_kbd_ctrl_write == 0x05) { // last write whatsoever (except 0)
               // let kernel decide what to do
-              audio_control(NUbus_Data.byte[0] == 0xfa);
+              audio_control(NUbus_Data.byte[0] == 0xfa,vn);
             }
             last_kbd_ctrl_write = NUbus_Data.byte[0];  // remember last write
           }
 #endif
 	  NUbus_acknowledge=1;
-	  return;	
+	  return;
 	}
 	if(NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ){
 	  if(NUbus_trace == 1){
@@ -357,7 +367,7 @@ void vcmem_clock_pulse(int vn){
 	    logmsgf(LT_VCMEM,10,"%X\n",NUbus_Data.word);
 	  }
 	  NUbus_acknowledge=1;
-	  return;	
+	  return;
 	}
 	break;
 
@@ -390,7 +400,7 @@ void vcmem_clock_pulse(int vn){
 	    logmsgf(LT_VCMEM,1,"MOUSE: INIT\n");
 	  }
 	  NUbus_acknowledge=1;
-	  return;	
+	  return;
 	}
 	if(NUbus_Request == VM_READ){
 	  if(NUbus_trace == 1){
@@ -402,7 +412,7 @@ void vcmem_clock_pulse(int vn){
 	    NUbus_Data.word = 0;
 	  }
 	  NUbus_acknowledge=1;
-	  return;	
+	  return;
 	}
 	break;
 
@@ -473,16 +483,16 @@ void vcmem_clock_pulse(int vn){
 	    case 1: // Read Low Half
 	      NUbus_Data.hword[0] = *(uint16_t *)(vcS[vn].AMemory+(FBAddr-1));
 	      break;
-	      
+
 	    case 2: // Block Transfer (ILLEGAL)
 	      logmsgf(LT_VCMEM,0,"VCMEM: BLOCK READ REQUESTED\n");
 	      ld_die_rq=1;
 	      break;
-	      
+
 	    case 3: // Read High Half
 	      NUbus_Data.hword[1] = *(uint16_t *)(vcS[vn].AMemory+(FBAddr-1));
 	      break;
-	    
+
 	    case 0:
 	      // Full word read
 	      NUbus_Data.word = *(uint32_t *)(vcS[vn].AMemory+FBAddr);
@@ -519,44 +529,44 @@ void vcmem_clock_pulse(int vn){
 	    case 1: // Write low half
 	      switch(vcS[vn].Function.Function){
 	      case 0: // XOR
-		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) ^= NUbus_Data.hword[0]; 
+		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) ^= NUbus_Data.hword[0];
 		break;
 	      case 1: // OR
-		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) |= NUbus_Data.hword[0]; 
+		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) |= NUbus_Data.hword[0];
 		break;
 	      case 2: // AND
-		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) &= ~NUbus_Data.hword[0]; 
+		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) &= ~NUbus_Data.hword[0];
 		break;
 	      case 3: // STORE
-		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) = NUbus_Data.hword[0]; 
+		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) = NUbus_Data.hword[0];
 		break;
 	      }
 	      framebuffer_update_hword(vn,FBAddr-1,NUbus_Data.hword[0]);
 	      break;
-	      
+
 	    case 2: // BLOCK TRANSFER (ILLEGAL)
 	      logmsgf(LT_VCMEM,0,"VCMEM: BLOCK TRANSFER REQUESTED\n");
 	      ld_die_rq=1;
 	      break;
-	      
+
 	    case 3: // Write high half
 	      switch(vcS[vn].Function.Function){
 	      case 0: // XOR
-		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) ^= NUbus_Data.hword[1]; 
+		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) ^= NUbus_Data.hword[1];
 		break;
               case 1: // OR
-		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) |= NUbus_Data.hword[1]; 
+		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) |= NUbus_Data.hword[1];
 		break;
               case 2: // AND
-		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) &= ~NUbus_Data.hword[1]; 
+		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) &= ~NUbus_Data.hword[1];
 		break;
               case 3: // STORE
-		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) = NUbus_Data.hword[1]; 
+		*(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) = NUbus_Data.hword[1];
 		break;
 	      }
 	      framebuffer_update_hword(vn,FBAddr-1,NUbus_Data.hword[1]);
 	      break;
-	      
+
 	    case 0: // Full Word
               switch(vcS[vn].Function.Function){
               case 0: // XOR
@@ -584,7 +594,7 @@ void vcmem_clock_pulse(int vn){
 	// Configuration PROM
       case 0xFFE000 ... 0xFFFFFF:
 	if((NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ) && NUbus_Address.Byte == 0){
-	  uint32_t rom_addr = (NUbus_Address.Addr-0xffe000)/4;	  
+	  uint32_t rom_addr = (NUbus_Address.Addr-0xffe000)/4;
 	  NUbus_Data.word = VCMEM_ROM[rom_addr];
 	  /*
 	  logmsgf(LT_VCMEM,,"VCM: ROM READ 0x");
@@ -600,7 +610,7 @@ void vcmem_clock_pulse(int vn){
 	  }else{
 	    NUbus_Data.word = 0;
 	  }
-	  */	  
+	  */
 	  NUbus_acknowledge=1;
 	  return;
 	}
@@ -616,8 +626,8 @@ void vcmem_clock_pulse(int vn){
 	}
 	break;
 	*/
-	
-      default:      
+
+      default:
 	logmsgf(LT_VCMEM,0,"VCMEM: Unimplemented address 0x%X\n",NUbus_Address.Addr);
 	ld_die_rq = 1;
       }

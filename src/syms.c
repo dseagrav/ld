@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
    Greg Gilley
@@ -132,7 +132,7 @@ _sym_find(struct symtab_s *tab, char *name, int *pval)
 /*
  * read a cadr mcr symbol file
  */
-int 
+int
 _sym_read_file(struct symtab_s *tab, const char *filename)
 {
 	int first = 1;
@@ -250,7 +250,7 @@ _sym_sort(struct symtab_s *tab)
 	return 0;
 }
 
-int 
+int
 read_sym_files(void)
 {
 	_sym_read_file(&sym_mcr, "bootstrap.lam-uload");

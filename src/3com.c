@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
 
@@ -202,24 +202,24 @@ int gen_arp_response = -1; // ARP response forgery timer
 void activate_utun(){
   struct ctl_info ctlInfo;
   struct sockaddr_ctl sc;
-  
+
   strlcpy(ctlInfo.ctl_name, UTUN_CONTROL_NAME, sizeof(ctlInfo.ctl_name));
   utun_fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
   if (utun_fd < 0) {
-    perror("utun: socket()");	    
+    perror("utun: socket()");
   }else{
     if(ioctl(utun_fd, CTLIOCGINFO, &ctlInfo) == -1){
       close(utun_fd);
       perror("utun: ioctl()");
     }else{
       logmsgf(LT_3COM,10,"ctl_info: {ctl_id: %ud, ctl_name: %s}\n",ctlInfo.ctl_id, ctlInfo.ctl_name);
-      
+
       sc.sc_id = ctlInfo.ctl_id;
       sc.sc_len = sizeof(sc);
       sc.sc_family = AF_SYSTEM;
       sc.ss_sysaddr = AF_SYS_CONTROL;
       sc.sc_unit = 10;
-      
+
       if(connect(utun_fd, (struct sockaddr *)&sc, sizeof(sc)) < 0){
 	perror("utun: connect()");
 		  close(utun_fd);
@@ -228,8 +228,8 @@ void activate_utun(){
 	int rv=0;
 	// Become nonblocking
 	fcntl(utun_fd, F_SETFL, O_NONBLOCK);
-	
-	// Set IP addresses!		  
+
+	// Set IP addresses!
 	// ifconfig utun9 inet 10.0.0.165 10.0.0.50 netmask 255.255.255.255
 	sprintf(syscmd,"ifconfig utun9 inet %s",inet_ntoa(HOST_IN_ADDR));
 	sprintf(syscmd,"%s %s netmask 255.255.255.255",syscmd,inet_ntoa(GUEST_IN_ADDR));
@@ -253,7 +253,7 @@ int ether_init(){
   uint32_t y;
 #ifdef USE_UTUN
   struct ifaddrs *addrlist = NULL;
-  
+
   // Determine host's ethernet and IP addresses.
   x  = getifaddrs(&addrlist);
   if(x == 0){
@@ -265,7 +265,7 @@ int ether_init(){
 	  // link-level address
 	  struct sockaddr_dl *linkaddr = (struct sockaddr_dl *)addr->ifa_addr;
 	  if(linkaddr->sdl_type == IFT_ETHER && linkaddr->sdl_alen == 6){
-	    // Ethernet MAC	    
+	    // Ethernet MAC
 	    uint8_t *eaddr = (uint8_t *)LLADDR(linkaddr);
 	    HOST_HW_ADDR.byte[0] = eaddr[0];
 	    HOST_HW_ADDR.byte[1] = eaddr[1];
@@ -274,7 +274,7 @@ int ether_init(){
 	    HOST_HW_ADDR.byte[4] = eaddr[4];
 	    HOST_HW_ADDR.byte[5] = eaddr[5];
 	    HOST_HW_ADDR.byte[6] = 0;
-	    HOST_HW_ADDR.byte[7] = 0;	    
+	    HOST_HW_ADDR.byte[7] = 0;
 	    logmsgf(LT_3COM,10,"BPF: Host MAC address %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
 		   HOST_HW_ADDR.byte[0],HOST_HW_ADDR.byte[1],HOST_HW_ADDR.byte[2],
 		   HOST_HW_ADDR.byte[3],HOST_HW_ADDR.byte[4],HOST_HW_ADDR.byte[5]);
@@ -298,7 +298,7 @@ int ether_init(){
 	// logmsgf(LT_3COM,10,"BPF: Addr family %d\n",addr->ifa_addr->sa_family);
       }
       addr = addr->ifa_next;
-    }    
+    }
     freeifaddrs(addrlist);
   }else{
     perror("BPF:getifaddrs()");
@@ -411,7 +411,7 @@ void ether_tx_pkt(uint8_t *data,uint32_t len){
   // to a tunnel interface instead.
   // Until this is fixed, this means we can only use IP to speak with the local host.
 
-  // Is this a broadcast packet?  
+  // Is this a broadcast packet?
   struct ether_header *header = (struct ether_header *)data;
   if(header->ether_dhost[0] == 0xFF && header->ether_dhost[1] == 0xFF && header->ether_dhost[2] == 0xFF &&
      header->ether_dhost[3] == 0xFF && header->ether_dhost[4] == 0xFF && header->ether_dhost[5] == 0xFF){
@@ -467,18 +467,18 @@ void ether_tx_pkt(uint8_t *data,uint32_t len){
 	  res = write(utun_fd,tunbuf,len-10);
 	  if(res < 0){
 	    perror("utun:write()");
-	  }  	  
+	  }
 	}
       }
     }
   }
 #endif
-    
+
   // logmsgf(LT_3COM,10,"Ether: Sending %d bytes\n",len);
   res = write(ether_fd,data,len);
   if(res < 0){
     perror("ether:write()");
-  }  
+  }
   return;
 }
 
@@ -494,8 +494,8 @@ uint32_t ether_rx_pkt(){
   if(bpf_buf_offset == 0){
 #ifdef USE_UTUN
     // ARP forgery timer active?
-    if(gen_arp_response >= 0){      
-      gen_arp_response--;      
+    if(gen_arp_response >= 0){
+      gen_arp_response--;
       if(gen_arp_response == -1){
 	// Generate response
 	// Packet goes at ether_rx_buf+4 to account for Linux ethernet header
@@ -514,7 +514,7 @@ uint32_t ether_rx_pkt(){
 	ether_rx_buf[14] = HOST_HW_ADDR.byte[4];
 	ether_rx_buf[15] = HOST_HW_ADDR.byte[5];
 	ether_rx_buf[16] = 0x08;                 // ARP (0x0806)
-	ether_rx_buf[17] = 0x06; 
+	ether_rx_buf[17] = 0x06;
 	// ARP packet
 	ether_rx_buf[18] = 0x00;                 // HTYPE (1 = ethernet)
 	ether_rx_buf[19] = 0x01;
@@ -544,7 +544,7 @@ uint32_t ether_rx_pkt(){
 	ether_rx_buf[43] = ((GUEST_IN_ADDR.s_addr&0x0000FF00)>>8);
 	ether_rx_buf[44] = ((GUEST_IN_ADDR.s_addr&0x00FF0000)>>16);
 	ether_rx_buf[45] = ((GUEST_IN_ADDR.s_addr&0xFF000000)>>24);
-	// FCS	
+	// FCS
 	// The Lambda doesn't seem to actually check it, can we just leave it zeroes?
 	// Yes!
 	logmsgf(LT_3COM,10,"ENET: ARP response generated!\n");
@@ -583,7 +583,7 @@ uint32_t ether_rx_pkt(){
 	  ether_rx_buf[14] = HOST_HW_ADDR.byte[4];
 	  ether_rx_buf[15] = HOST_HW_ADDR.byte[5];
 	  ether_rx_buf[16] = 0x08;                 // IPv4 (0x0800)
-	  ether_rx_buf[17] = 0x00; 
+	  ether_rx_buf[17] = 0x00;
 	  // Target packet
 	  memcpy(ether_rx_buf+18,tunbuf+4,res-4);
 	  // Tell the host about it
@@ -705,7 +705,7 @@ uint8_t enet_read(uint16_t addr){
     subaddr = addr-0x1000;
     return(ETH_RX_Buffer[0][subaddr]);
     break;
-  case 0x1800 ... 0x1FFF: // RX Buffer B 
+  case 0x1800 ... 0x1FFF: // RX Buffer B
     subaddr = addr-0x1800;
     return(ETH_RX_Buffer[1][subaddr]);
     break;
@@ -815,115 +815,124 @@ void enet_write(uint16_t addr,uint8_t data){
 
 void enet_clock_pulse(){
   // Ethernet controller maintenance
-  eth_cycle_count++;
-  if(eth_cycle_count > (5000000/60)){
-    int32_t pktlen = 0;
-    int32_t drop = 0;
-    eth_cycle_count = 0;
-    // Ethernet ready to take a packet?
-    if(ETH_MECSR_MEBACK.AMSW == 1 && (ETH_MECSR_MEBACK.ABSW == 1 || ETH_MECSR_MEBACK.BBSW == 1)){ 
-      // Yes
-      pktlen = ether_rx_pkt();      
-      if(pktlen > 0){
-        // We can has packet!
-        pktlen -= 4;
-        // uint16_t hdr = ((pktlen+2)<<1);
-        uint16_t hdr = (pktlen+2);
-        if(hdr&0x01){ hdr++; }
+  // This wants to be run at 60Hz.
+  int32_t pktlen = 0;
+  int32_t drop = 0;
+  // Ethernet ready to take a packet?
+  if(ETH_MECSR_MEBACK.AMSW == 1 && (ETH_MECSR_MEBACK.ABSW == 1 || ETH_MECSR_MEBACK.BBSW == 1)){
+    // Yes
+    pktlen = ether_rx_pkt();
+    if(pktlen > 0){
+      // We can has packet!
+      pktlen -= 4;
+      // uint16_t hdr = ((pktlen+2)<<1);
+      uint16_t hdr = (pktlen+2);
+      if(hdr&0x01){ hdr++; }
 #if !defined (HAVE_LINUX_IF_H) && defined (HAVE_NET_BPF_H)
-	// Did we transmit this?
-	if(ether_rx_buf[10] == ETH_Addr_RAM[0] &&
-	   ether_rx_buf[11] == ETH_Addr_RAM[1] &&
-	   ether_rx_buf[12] == ETH_Addr_RAM[2] &&
-	   ether_rx_buf[13] == ETH_Addr_RAM[3] &&
-	   ether_rx_buf[14] == ETH_Addr_RAM[4] &&
-	   ether_rx_buf[15] == ETH_Addr_RAM[5]){
-	  // Yes, ignore it.
-	  return;
-	}
+      // Did we transmit this?
+      if(ether_rx_buf[10] == ETH_Addr_RAM[0] &&
+	 ether_rx_buf[11] == ETH_Addr_RAM[1] &&
+	 ether_rx_buf[12] == ETH_Addr_RAM[2] &&
+	 ether_rx_buf[13] == ETH_Addr_RAM[3] &&
+	 ether_rx_buf[14] == ETH_Addr_RAM[4] &&
+	 ether_rx_buf[15] == ETH_Addr_RAM[5]){
+	// Yes, ignore it.
+	return;
+      }
 #endif
-	// Is it for us?
-        if(!(ether_rx_buf[4] == ETH_Addr_RAM[0] &&
-             ether_rx_buf[5] == ETH_Addr_RAM[1] &&
-             ether_rx_buf[6] == ETH_Addr_RAM[2] &&
-             ether_rx_buf[7] == ETH_Addr_RAM[3] &&
-             ether_rx_buf[8] == ETH_Addr_RAM[4] &&
-             ether_rx_buf[9] == ETH_Addr_RAM[5])){
-          // It's not ours
-          hdr |= 0x1000;
-        }
-        // Is this multicast/broadcast?
-        if(ether_rx_buf[4]&0x01){
-          // Yes. Is it broadcast?        
-          if(ether_rx_buf[4] == 0xFF &&
-             ether_rx_buf[5] == 0xFF &&
-             ether_rx_buf[6] == 0xFF &&
-             ether_rx_buf[7] == 0xFF &&
-             ether_rx_buf[8] == 0xFF &&
-             ether_rx_buf[9] == 0xFF){
-            // It's a broadcast packet
-            hdr |= 0x4000;
-          }else{
-            // It's not a broadcast packet. Are we in broadcast mode?
-            if(ETH_MECSR_MEBACK.PA < 6){
-              // Yes, so discard this
-              drop = 1;
-	      logmsgf(LT_3COM,10,"3COM: DROP PACKET: Not Broadcast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
-		 ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9]);
-            }
-          }
-        }else{
-          // Not multicast/broadcast.
-          if(hdr&0x1000 && ETH_MECSR_MEBACK.PA > 2){
-            // And not mine, and we are not in promisc.
-            logmsgf(LT_3COM,10,"3COM: DROP PACKET: Not mine or multicast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
-	       ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9]);
-            drop = 1;
-          }
-        }
-	// 3COM STORES PACKET B FIRST!
-        // Can we put it in B?
-        if(ETH_MECSR_MEBACK.BBSW == 1 && drop == 0){
-          // yes!
-          // Obtain packet
-          memcpy(ETH_RX_Buffer[1]+2,ether_rx_buf+4,pktlen);
-          // Obtain header
-          ETH_RX_Buffer[1][0] = ((hdr&0xFF00)>>8);
-          ETH_RX_Buffer[1][1] = (hdr&0xFF);       
-	  logmsgf(LT_3COM,10,"3COM: PACKET STORED IN B\n");
-          ETH_MECSR_MEBACK.BBSW = 0; // Now belongs to host
-          if(ETH_MECSR_MEBACK.ABSW == 0){
-            ETH_MECSR_MEBACK.RBBA = 0; // Packet A is older than packet B.
-          }
-	  if(ETH_MECSR_MEBACK.BINTEN != 0){
-	    logmsgf(LT_3COM,10,"3COM: BINTEN SET, INTERRUPTING\n");
+      // Is it for us?
+      if(!(ether_rx_buf[4] == ETH_Addr_RAM[0] &&
+	   ether_rx_buf[5] == ETH_Addr_RAM[1] &&
+	   ether_rx_buf[6] == ETH_Addr_RAM[2] &&
+	   ether_rx_buf[7] == ETH_Addr_RAM[3] &&
+	   ether_rx_buf[8] == ETH_Addr_RAM[4] &&
+	   ether_rx_buf[9] == ETH_Addr_RAM[5])){
+	// It's not ours
+	hdr |= 0x1000;
+      }
+      // Is this multicast/broadcast?
+      if(ether_rx_buf[4]&0x01){
+	// Yes. Is it broadcast?
+	if(ether_rx_buf[4] == 0xFF &&
+	   ether_rx_buf[5] == 0xFF &&
+	   ether_rx_buf[6] == 0xFF &&
+	   ether_rx_buf[7] == 0xFF &&
+	   ether_rx_buf[8] == 0xFF &&
+	   ether_rx_buf[9] == 0xFF){
+	  // It's a broadcast packet
+	  hdr |= 0x4000;
+	}else{
+	  // It's not a broadcast packet. Are we in broadcast mode?
+	  if(ETH_MECSR_MEBACK.PA < 6){
+	    // Yes, so discard this
+	    drop = 1;
+	    logmsgf(LT_3COM,10,"3COM: DROP PACKET: Not Broadcast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+		    ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9]);
+	  }
+	}
+      }else{
+	// Not multicast/broadcast.
+	if(hdr&0x1000 && ETH_MECSR_MEBACK.PA > 2){
+	  // And not mine, and we are not in promisc.
+	  logmsgf(LT_3COM,10,"3COM: DROP PACKET: Not mine or multicast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+		  ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9]);
+	  drop = 1;
+	}
+      }
+      // 3COM STORES PACKET B FIRST!
+      // Can we put it in B?
+      if(ETH_MECSR_MEBACK.BBSW == 1 && drop == 0){
+	// yes!
+	// Obtain packet
+	memcpy(ETH_RX_Buffer[1]+2,ether_rx_buf+4,pktlen);
+	// Obtain header
+	ETH_RX_Buffer[1][0] = ((hdr&0xFF00)>>8);
+	ETH_RX_Buffer[1][1] = (hdr&0xFF);
+	logmsgf(LT_3COM,10,"3COM: PACKET STORED IN B\n");
+	ETH_MECSR_MEBACK.BBSW = 0; // Now belongs to host
+	if(ETH_MECSR_MEBACK.ABSW == 0){
+	  ETH_MECSR_MEBACK.RBBA = 0; // Packet A is older than packet B.
+	}
+	if(ETH_MECSR_MEBACK.BINTEN != 0){
+	  logmsgf(LT_3COM,10,"3COM: BINTEN SET, INTERRUPTING\n");
+	  multibus_interrupt(0);
+	}
+      }else{
+	// No, can we put it in A?
+	if(ETH_MECSR_MEBACK.ABSW == 1 && drop == 0){
+	  // Yes!
+	  // Obtain packet
+	  memcpy(ETH_RX_Buffer[0]+2,ether_rx_buf+4,pktlen);
+	  // Obtain header
+	  ETH_RX_Buffer[0][0] = ((hdr&0xFF00)>>8);
+	  ETH_RX_Buffer[0][1] = (hdr&0xFF);
+	  logmsgf(LT_3COM,10,"3COM: PACKET STORED IN A\n");
+	  ETH_MECSR_MEBACK.ABSW = 0; // Now belongs to host
+	  ETH_MECSR_MEBACK.RBBA = 1; // Packet B is older than packet A.
+	  if(ETH_MECSR_MEBACK.AINTEN != 0){
+	    logmsgf(LT_3COM,10,"3COM: AINTEN SET, INTERRUPTING\n");
 	    multibus_interrupt(0);
 	  }
-        }else{
-          // No, can we put it in A?
-          if(ETH_MECSR_MEBACK.ABSW == 1 && drop == 0){
-            // Yes!
-            // Obtain packet
-            memcpy(ETH_RX_Buffer[0]+2,ether_rx_buf+4,pktlen);
-            // Obtain header
-            ETH_RX_Buffer[0][0] = ((hdr&0xFF00)>>8);
-            ETH_RX_Buffer[0][1] = (hdr&0xFF);
-	    logmsgf(LT_3COM,10,"3COM: PACKET STORED IN A\n");
-            ETH_MECSR_MEBACK.ABSW = 0; // Now belongs to host
-            ETH_MECSR_MEBACK.RBBA = 1; // Packet B is older than packet A.
-	    if(ETH_MECSR_MEBACK.AINTEN != 0){
-	      logmsgf(LT_3COM,10,"3COM: AINTEN SET, INTERRUPTING\n");
-	      multibus_interrupt(0);
-	    }
-          }else{
-            // Can't do anything with it! Drop it!
-            logmsgf(LT_3COM,10,"3COM: PA exclusion, packet dropped: PA mode 0x%X and header word 0x%X\n",
-	       ETH_MECSR_MEBACK.PA,hdr);
-          }
-        }       
+	}else{
+	  // Can't do anything with it! Drop it!
+	  logmsgf(LT_3COM,10,"3COM: PA exclusion, packet dropped: PA mode 0x%X and header word 0x%X\n",
+		  ETH_MECSR_MEBACK.PA,hdr);
+	}
       }
     }
-  }  
+  }
+}
+
+// Ethernet controller execution thread
+void *enet_thread(void *arg __attribute__ ((unused))){
+  while(ld_die_rq == 0){
+    // The ethernet loop wants to be run at 60Hz.
+    enet_clock_pulse();
+    // We don't have to be exact.
+    usleep(16667);
+  }
+  // If we got here, we are dying, so go and die.
+  return(NULL);
 }
 
 #ifdef HAVE_YAML_H
@@ -980,13 +989,13 @@ int yaml_network_mapping_loop(yaml_parser_t *parser){
 	strncpy(value,(const char *)event.data.scalar.value,128);
         if(strcmp(key,"interface") == 0){
 	  strncpy(ether_iface,value,30);
-	  logmsgf(LT_3COM,0,"Using 3Com Ethernet interface %s\n",ether_iface);	  
+	  logmsgf(LT_3COM,0,"Using 3Com Ethernet interface %s\n",ether_iface);
 	  goto value_done;
 	}
 #ifdef USE_UTUN
         if(strcmp(key,"guest-ip") == 0){
 	  strncpy(guest_ip_addr,value,31);
-	  logmsgf(LT_3COM,0,"Using guest IP address %s\n",guest_ip_addr);	  
+	  logmsgf(LT_3COM,0,"Using guest IP address %s\n",guest_ip_addr);
 	  goto value_done;
 	}
 #endif
@@ -1006,9 +1015,9 @@ int yaml_network_mapping_loop(yaml_parser_t *parser){
 	  }
 	  logmsgf(LT_3COM,0,"Using 3Com Ethernet address %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
 		 ether_addr[0],ether_addr[1],ether_addr[2],ether_addr[3],ether_addr[4],ether_addr[5]);
-	  
+
 	  goto value_done;
-	}	
+	}
 	logmsgf(LT_3COM,0,"network: Unknown key %s (value %s)\n",key,value);
 	return(-1);
 	// Done
@@ -1020,6 +1029,6 @@ int yaml_network_mapping_loop(yaml_parser_t *parser){
     }
     yaml_event_delete(&event);
   }
-  return(0);  
+  return(0);
 }
 #endif

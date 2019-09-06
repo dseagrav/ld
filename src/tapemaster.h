@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
 
    This file is part of LambdaDelta.
@@ -17,6 +17,7 @@
    along with LambdaDelta.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+void *tm_thread(void *arg);
 void tapemaster_init();
 int tapemaster_open_next();
 void tapemaster_clock_pulse();

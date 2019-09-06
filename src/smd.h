@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
 
    This file is part of LambdaDelta.
@@ -22,6 +22,8 @@ int smd_init();
 void smd_reset();
 uint8_t smd_read(uint8_t addr);
 void smd_write(uint8_t addr,uint8_t data);
+void *smd_thread(void *arg);
+
 #ifdef HAVE_YAML_H
 int yaml_disk_mapping_loop(yaml_parser_t *parser);
 int yaml_disk_sequence_loop(yaml_parser_t *parser);

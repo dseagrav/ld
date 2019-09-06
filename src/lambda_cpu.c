@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
 
@@ -19,18 +19,26 @@
 */
 
 #include <stdio.h>
+#include <unistd.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <strings.h>
 #include <stdlib.h>
+#include <time.h>
+#include <pthread.h>
 
 #include "ld.h"
-#include "lambda_cpu.h"
 #include "nubus.h"
+#include "lambda_cpu.h"
 #include "mem.h"
 #include "sdu.h"
 #include "syms.h"
+
+// For this file only, PHYSKBD enables XBEEP
+#ifdef CONFIG_PHYSKBD
+#define XBEEP 1
+#endif
 
 #ifdef XBEEP
 // BEEP support. The addresses of XBEEP and XFALSE are looked up in lambda_initialize.
@@ -38,12 +46,12 @@ uint32_t xbeep_addr = 0;
 uint32_t xfalse_addr = 0;
 #endif
 
-// FIXME: Remove the #define and the conditionals later
-#define ISTREAM
-
 // Configuration PROM message
 static uint8_t prom_string[0x12] = "LMI LAMBDA V5.0";
 static uint8_t prom_modelno_string[0x12] = "LAM001 V5.0";
+
+// Emulator death flag
+extern volatile int ld_die_rq;
 
 // For mouse callback
 extern uint32_t mouse_x_loc[2];
@@ -59,6 +67,12 @@ ShadowMemoryPageEnt ShadowMemoryPageMap[0x20000];
 // Processor states
 struct lambdaState pS[2];
 
+// Cache write-check status array
+uint8_t cache_wc_status[2][0x0FFFFFFF];
+
+// Cache write-check mutexes
+pthread_mutex_t cache_wc_mutex[2] = {PTHREAD_MUTEX_INITIALIZER,PTHREAD_MUTEX_INITIALIZER};
+
 #ifdef SHADOW
 // Shadow memory maintenance
 void shadow_write(uint32_t addr,Q data){
@@ -70,10 +84,21 @@ Q shadow_read(uint32_t addr){
 }
 #endif
 
+// Local Bus functions
+void maybe_take_nubus_mastership(int I){
+  if(pS[I].NUbus_Master == 0){
+    if(pS[I].SM_Clock_Pulse > 0){
+      logmsgf(LT_LAMBDA,0,"LCBUS: DANGER WILL ROBINSON! TAKING NUBUS MASTERSHIP IN SM CLOCK PULSE!\n");
+    }
+    take_nubus_mastership();
+    pS[I].NUbus_Master = 1;
+  }
+}
+
 // Utility functions
 void debug_disassemble_IR(int I);
-void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR);
-  
+void sm_clock_pulse(int I,int clock,volatile Processor_Mode_Reg *oldPMR);
+
 uint32_t ldb(uint64_t value, int size, int position){
   uint64_t mask,result;
   // Create mask
@@ -211,7 +236,7 @@ void operate_shifter(int I){
   }
 }
 
-/* 
+/*
    MICROINSTRUCTION BITS
 
    ALL OPS
@@ -224,11 +249,11 @@ void operate_shifter(int I){
    LAM-IR-MACRO-STREAM-ADVANCE (BYTE 1 54.)
    LAM-IR-SOURCE-TO-MACRO-IR (BYTE 1 53.)
    LAM-IR-MACRO-IR-DISPATCH (BYTE 1 52.)
-   LAM-IR-POPJ-AFTER-NEXT (byte 1 51.)   
+   LAM-IR-POPJ-AFTER-NEXT (byte 1 51.)
    LAM-IR-A-SRC (byte 12. 39.)
    LAM-IR-M-SRC (byte 7 32.)
    LAM-IR-OP (byte 2 30.)
-   
+
    ALU-OP
    WHAT ARE BITS 27-29?
    LAM-IR-DEST (BYTE 13. 14.)
@@ -236,10 +261,10 @@ void operate_shifter(int I){
    LAM-IR-OB (BYTE 3 9.)  ;note bit 2 of this field conditions sel.0 of the output selector
    LAM-IR-ALUF (BYTE 7 2)        ;INCLUDING CARRY
    LAM-IR-Q (BYTE 2 0)
-   
+
    BYTE-OP (OTHERWISE SAME AS ALU-OP?)
    LAM-IR-BYTE-FUNC (BYTE 2 28.)
-   
+
    LAM-BYTE-SPEC (BYTE 12. 0)
 
 
@@ -259,8 +284,8 @@ void operate_shifter(int I){
    LAM-IR-DISP-BYTL (BYTE 5 6)
    LAM-IR-MROT (BYTE 6 0)
 
-   
-   
+
+
 
 
  */
@@ -528,7 +553,7 @@ void disassembleWork(void* f, uint64_t inst, int debLog){
     }
   }
   fprintf(f, " ");
-  
+
   // Next get opcode and switch
   switch(ui.Opcode){
   case 0: // ALU
@@ -730,6 +755,16 @@ void lambda_initialize(int I,int ID){
   pS[I].wrote_uPC = false;
   pS[I].NOP_Next = false;
   pS[I].mirInvalid = 0;
+  // Reset LCbus
+  pS[I].NUbus_Master = 0;
+  pS[I].LCbus_Busy = 0;
+  pS[I].LCbus_acknowledge = 0;
+  pS[I].LCbus_error = 0;
+  // Reset SM clocks
+  pS[I].SM_Clock_Pulse = 0;
+  // Reinitialize performance counter
+  pS[I].delta_time = 0;
+  // If this is an initial setup...
   if(ID != 0){
     // Clobber erasable memories
     bzero((uint8_t *)pS[I].WCS,(64*1024)*8);
@@ -748,12 +783,29 @@ void lambda_initialize(int I,int ID){
     pS[I].macrotrace = false;
     // Set up slot assignments
     pS[I].NUbus_ID = ID;
-    pS[I].RG_Mode.NUbus_ID = (pS[I].NUbus_ID&0x0F);  
+    pS[I].RG_Mode.NUbus_ID = (pS[I].NUbus_ID&0x0F);
+    // Clobber cache
+    x=0;
+    while(x < 0x10000000){
+      cache_wc_status[0][x] = cache_wc_status[1][x] = 0;
+      x++;
+    }
+    x = 0;
+    while(x < 256){
+      int y;
+      pS[I].Cache_Sector_Addr[x] = 0;
+      y=0;
+      while(y < 4){
+        pS[I].Cache_Status[x][y] = 0;
+        y++;
+      }
+      x++;
+    }
     // Let's experimentally reset bits in the LV1 and LV2 maps
     x=0;
     while(x < 4096){
       // All these fields are inverted.
-      pS[I].vm_lv1_map[x].MB = 03; 
+      pS[I].vm_lv1_map[x].MB = 03;
       pS[I].vm_lv1_map[x].MB_Valid = 1;
       pS[I].vm_lv2_ctl[x].Meta = 077;
       x++;
@@ -945,20 +997,20 @@ void operate_alu(int I){
     logmsgf(LT_LAMBDA,0,"Unknown ALU Operation %o\n",pS[I].Iregister.ALU.Operation);
     pS[I].cpu_die_rq = 1;
   }
-  
+
   // Reduce carry-out to a flag
   pS[I].ALU_Carry_Out = (pS[I].ALU_Result&0xFFFFFFFF00000000LL) ? 1 : 0;
   // Clean Output (ALU is 32 bits wide)
   pS[I].ALU_Result &= 0xFFFFFFFF;
-  
+
   // For logical operations the carry-out flag is the integer sign bit.
   if((pS[I].Iregister.ALU.Operation < 030) && (pS[I].Iregister.ALU.Operation != 020)){
     pS[I].ALU_Carry_Out = (pS[I].ALU_Result & 0x80000000) ? 1 : 0;
-  }    
-  
+  }
+
   // The mask bit selects where the high bits of the result come from.
   // If it's set, they come from the A-bus.
-  if(pS[I].Iregister.ALU.Mask > 0){ 
+  if(pS[I].Iregister.ALU.Mask > 0){
     pS[I].ALU_Result &= 0x01FFFFFF;
     pS[I].ALU_Result |= (pS[I].Abus&0xFE000000);
   }
@@ -967,10 +1019,10 @@ void operate_alu(int I){
 void handle_o_bus(int I){
   // Determine output location
   pS[I].Obus_Input = pS[I].ALU_Result;
-  
-  // Load pS[I].Obus 
+
+  // Load pS[I].Obus
   switch(pS[I].Iregister.ALU.Output){
-    
+
   case 0: // LAM-OB-MSK
     // Run things through the MASKER PROM.
     // Bits feeding the masker:
@@ -978,24 +1030,24 @@ void handle_o_bus(int I){
     //  alu.output.bus.control.2 =0, bits 31-25 ->1, 24-0-> 0.  ie, if alu.output.bus.control.1
     //   =0 and alu.output.bus.control.0=1 (normal case), then data type bits come from
     //   A source, pointer bits from ALU.
-    //  alu.output.bus.control.2 =1, " (comment ended) 
+    //  alu.output.bus.control.2 =1, " (comment ended)
     // Bit 11: "this bit goes to masker prom on alu's, allowing access to masked add hacks, etc.
     // Bit 29: "in alu inst, this same bit allows q-control bits to reach masker proms, allowing access to masked-add hacks."
-    
+
     // "if the m source is all ones and the a source is all zeroes, then the output should be identical to the contents of the masker prom"
     // (But that was for byte operations!)
-    
+
     if(pS[I].Iregister.ALU.Mask){ logmsgf(LT_LAMBDA,0,"MASKER: BIT 8 SET\n"); pS[I].cpu_die_rq = 1; }
     if(pS[I].Iregister.ALU.Output&0x040){ logmsgf(LT_LAMBDA,0,"MASKER: BIT 11 SET\n"); pS[I].cpu_die_rq = 1; }
     if(pS[I].Iregister.ALU.Spare&0x040){ logmsgf(LT_LAMBDA,0,"MASKER: BIT 29 SET\n"); pS[I].cpu_die_rq = 1; }
-    
-    if(pS[I].Iregister.ALU.Operation != 0){	
+
+    if(pS[I].Iregister.ALU.Operation != 0){
       // logmsgf(LT_LAMBDA,10,"MASKER: Masker PROM unimplemented\n");
-      // pS[I].cpu_die_rq = 1;	
+      // pS[I].cpu_die_rq = 1;
     }
     pS[I].Obus = pS[I].Obus_Input;
     break;
-    
+
   case 1: // LAM-OB-ALU
     pS[I].Obus = pS[I].Obus_Input;
     break;
@@ -1067,7 +1119,7 @@ void handle_q_register(int I){
   }
 }
 
-// Virtual memory mapping process 
+// Virtual memory mapping process
 void VM_resolve_address(int I,int access,int force){
   if(pS[I].microtrace){
     logmsgf(LT_LAMBDA,10,"VM: Access %o Force %o: VMA = 0x%X\n",
@@ -1094,6 +1146,14 @@ void VM_resolve_address(int I,int access,int force){
   pS[I].vm_lv2_index.VPage_Offset = pS[I].VMAregister.VM.VPage_Offset;
   pS[I].vm_lv2_index.LV2_Block = pS[I].vm_lv1_map[pS[I].VMAregister.VM.VPage_Block].LV2_Block;
 
+  // Propagate cache stuff
+  pS[I].Cache_Permit = pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Cache_Permit;
+  pS[I].Packet_Code = pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packet_Code;
+  pS[I].Packetize_Writes = pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packetize_Writes;
+  pS[I].Cache_Resolved = 0;
+  pS[I].Cache_Sector_Hit = 0;
+  pS[I].Cache_Sector = 0;
+
   // Print LV2 data
   if(pS[I].microtrace){
     logmsgf(LT_LAMBDA,10,"VM: LV2 CTL ENT = 0x%X (Meta %o Status %o Access %o Force-Allowed %o Packet_Code %o Packetize-Writes %o Enable-Cache %o Lock-Nubus %o)\n",
@@ -1113,7 +1173,7 @@ void VM_resolve_address(int I,int access,int force){
   }
   // Here's our chance to screw up.
   // LV2 Meta:
-  // 
+  //
 
   // Update cached GCV
   pS[I].cached_gcv = pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Meta&03;
@@ -1146,7 +1206,7 @@ void VM_resolve_address(int I,int access,int force){
       pS[I].Page_Fault = 1;
       return;
     }
-  }  
+  }
 
   // Access 2 = Read Only
   // if((pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Access&2) == 0 && (access == VM_WRITE || access == VM_BYTE_WRITE)){
@@ -1159,16 +1219,19 @@ void VM_resolve_address(int I,int access,int force){
       pS[I].Page_Fault = 1;
       return;
     }
-  }  
+  }
 
   #if 0
   // Otherwise, halt for inspection on these
-  if(pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Status != 00 && 
-     pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Status != 02 && 
-     pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Status != 03 && 
+  if(pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Status != 00 &&
+     pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Status != 02 &&
+     pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Status != 03 &&
      pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Status != 04 &&
      pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Status != 05 &&
-     pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Status != 06){ logmsgf(LT_LAMBDA,0,"VM: Unknown LV2 status bits: Investigate!\n"); pS[I].cpu_die_rq = 1; }
+     pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Status != 06){
+    logmsgf(LT_LAMBDA,0,"VM: Unknown LV2 status bits: Investigate!\n");
+    pS[I].cpu_die_rq = 1;
+  }
   #endif
 
   // Index LV2
@@ -1184,6 +1247,29 @@ void VM_resolve_address(int I,int access,int force){
   // The bootstrap will set Packet Code to 1 with the Packetize flag set to 0.
   // This seems to indicate byte-ness.
   // Packet Code nonzero with Byte Code 0 means word!
+
+  // FAR NEWER UPDATE
+  // IF BYTE CODE IS NONZERO AND PACKET CODE IS SET, BYTE ACCESS
+  // IF BYTE CODE IS NONZERO AND PACKET CODE IS CLEAR, HALFWORD ACCESS
+  // IF BYTE CODE IS ZERO AND PACKET CODE IS CLEAR, WORD ACCESS
+  // IF BYTE CODE IS ZERO AND PACKET CODE IS SET, BLOCK XFER IF CACHE ENABLED
+
+  // Drive low address bits.
+  pS[I].vm_phys_addr.Byte = pS[I].vm_lv2_adr[pS[I].vm_lv2_index.raw].Byte_Code;
+  // Assume not byte mode.
+  pS[I].vm_byte_mode = 0;
+  // Packet code set?
+  if(pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packet_Code != 0){
+    // Yes. Byte access?
+    if(pS[I].vm_lv2_adr[pS[I].vm_lv2_index.raw].Byte_Code > 0){
+      // Byte access
+      pS[I].vm_byte_mode = 2;
+    }
+    // If it wasn't, and cache is enabled, this will become a block xfer.
+  }
+  // If the packet code wasn't set, we have either a word or halfword access.
+
+  /*
   pS[I].vm_byte_mode = 0;
   switch(pS[I].vm_lv2_adr[pS[I].vm_lv2_index.raw].Byte_Code){
   case 0:
@@ -1197,15 +1283,19 @@ void VM_resolve_address(int I,int access,int force){
     break;
   case 3:
     pS[I].vm_phys_addr.Byte = 3;
-    break;    
+    break;
   }
-  if(pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packet_Code != 0 && pS[I].vm_lv2_adr[pS[I].vm_lv2_index.raw].Byte_Code != 0){
-    if(pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packet_Code != 1){
-      logmsgf(LT_LAMBDA,0,"UNEXPECTED PACKET CODE %o\n",pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packet_Code);
-      pS[I].cpu_die_rq = 1;
+  // Packet code set?
+  if(pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packet_Code != 0){
+    // Is the byte code enabled?
+    if(pS[I].vm_lv2_adr[pS[I].vm_lv2_index.raw].Byte_Code != 0){
+      // If packet code is nonzero and byte access is set, this is a byte access.
+      pS[I].vm_byte_mode = 2; // Byte access
+    }else{
+      // If byte access is not set, packet code drives cache transfer size.
     }
-    pS[I].vm_byte_mode = 2; // Byte access
   }
+  */
 
 #ifdef SHADOW
   // Shadow memory maintenance if writing and not page fault.
@@ -1460,7 +1550,7 @@ void handle_source(int I,int source_mode){
 
 	// Only use this code if the symbols can be found (too dangerous otherwise?).
 	// Generalize to handle other functionality?
-	if (xbeep_addr != 0 && xfalse_addr != 0 && disp_word.PC == xbeep_addr) { // XBEEP 
+	if (xbeep_addr != 0 && xfalse_addr != 0 && disp_word.PC == xbeep_addr) { // XBEEP
 	  // The beep params are on the call stack (first pop duration, then wavelength)
 	  // See the case for LAM-M-SRC-C-PDL-BUFFER-POINTER-POP above
 	  // Read documentation for pS[I].DP_Mode
@@ -1535,6 +1625,401 @@ void handle_source(int I,int source_mode){
   pS[I].MFObus = pS[I].Mbus;
 }
 
+// Age (other) cache sectors
+void Age_Cache_Sectors(int I,int sector,int new){
+  int x = 0;
+  int age_above = pS[I].Cache_Sector_Age[sector];
+  // int oldest_age = 0;
+  int sectors_aged = 0;
+  if(new == 1){
+    // logmsgf(LT_LAMBDA,3,"CACHE: AGER: ALLOCATING SECTOR %d, AGING SECTORS\n",sector);
+  }else{
+    if(age_above == 0){
+      // We are accessing the currently newest sector. We don't need to do anything.
+      return;
+    }
+    // logmsgf(LT_LAMBDA,3,"CACHE: AGER: ACCESSING SECTOR %d, AGING SECTORS NEWER THAN %d\n",sector,age_above);
+  }
+  // Reset age of this sector (so 0 doesn't wrap around to 255)
+  pS[I].Cache_Sector_Age[sector] = 0;
+  // If we are aging all, skip all testing and just do it.
+  if(new != 0 || age_above == 255){
+    while(x < 256){
+      pS[I].Cache_Sector_Age[x]++;
+      // We only update this when we are aging the last sector (or aging all)
+      if(pS[I].Cache_Sector_Age[x] == 255){ pS[I].Cache_Oldest_Sector = x; }
+      x++;
+    }
+    // Re-reset age of this sector
+    pS[I].Cache_Sector_Age[sector] = 0;
+    /*
+    if(age_above == 255){
+      printf("AGED ALL SECTORS: OLDEST IS %d\n",pS[I].Cache_Oldest_Sector);
+      logmsgf(LT_LAMBDA,0,"CACHE: DUMPING SECTOR AGES AND HALTING\n");
+      sector = 0;
+      while(sector < 256){
+	logmsgf(LT_LAMBDA,0,"CACHE: SECTOR %d AGE %d\n",sector,pS[I].Cache_Sector_Age[sector]);
+	sector++;
+      }
+      exit(-1);
+    }
+    */
+    // Done
+    return;
+  }
+  // Otherwise
+  // We aren't aging the oldest sector, and we aren't allocating a new sector.
+  // loop sectors.
+  while(x < 256){
+    // If this isn't our sector
+    // if(x != sector){
+      // and it's newer than or equal to the age of what we accessed, age it.
+      // unless we just allocated a new sector, in which case age everything.
+      if(pS[I].Cache_Sector_Age[x] <= age_above){
+        // logmsgf(LT_LAMBDA,3,"CACHE: AGING SECTOR %d: %d -> %d\n",x,pS[I].Cache_Sector_Age[x],pS[I].Cache_Sector_Age[x]+1);
+	sectors_aged++;
+        pS[I].Cache_Sector_Age[x]++;
+      }else{
+        // logmsgf(LT_LAMBDA,3,"CACHE:       SECTOR %d: %d\n",x,pS[I].Cache_Sector_Age[x]);
+      }
+      /*
+      // Keep track of sector aged 255
+      // This won't be valid before the cache is filled.
+      if(pS[I].Cache_Sector_Age[x] == 255){
+	pS[I].Cache_Oldest_Sector = x;
+      }
+      */
+      /*
+      // If it's now older than the oldest thing we've seen so far
+      if(pS[I].Cache_Sector_Age[x] > oldest_age){
+	// Update the oldest age.
+        oldest_age = pS[I].Cache_Sector_Age[x];
+        pS[I].Cache_Oldest_Sector = x;
+      }
+      */
+      // }
+    if(sectors_aged == age_above+1){
+      // Re-reset age of this sector
+      pS[I].Cache_Sector_Age[sector] = 0;
+      // We are done!
+      // logmsgf(LT_LAMBDA,3,"CACHE: ALL REQUIRED SECTORS AGED\n");
+      // If we didn't reach the previous oldest age, leave the stats alone.
+      break;
+    }
+    x++;
+  }
+  /*
+  if(new == 0 && sectors_aged != age_above){
+    logmsgf(LT_LAMBDA,0,"CACHE: AGED %d OUT OF %d SECTORS!\n",sectors_aged,age_above);
+    logmsgf(LT_LAMBDA,0,"CACHE: DUMPING SECTOR AGES AND HALTING\n");
+    sector = 0;
+    while(sector < 256){
+      logmsgf(LT_LAMBDA,0,"CACHE: SECTOR %d AGE %d\n",sector,pS[I].Cache_Sector_Age[sector]);
+      sector++;
+    }
+    exit(-1);
+  }
+  */
+  // logmsgf(LT_LAMBDA,3,"CACHE: OLDEST SECTOR AGE IS %d\n",oldest_age);
+  /*
+  if(age_above > 0){
+    logmsgf(LT_LAMBDA,0,"CACHE: DUMPING SECTOR AGES AND HALTING\n");
+    sector = 0;
+    while(sector < 256){
+      logmsgf(LT_LAMBDA,0,"CACHE: SECTOR %d AGE %d\n",sector,pS[I].Cache_Sector_Age[sector]);
+      sector++;
+    }
+    exit(-1);
+  }
+  */
+}
+
+// Take and release cache write-check mutex
+void take_cache_wc(int I){
+  int result = pthread_mutex_lock(&cache_wc_mutex[I]);
+  if(result != 0){
+    logmsgf(LT_LAMBDA,0,"Unable to take cache writecheck mutex %d: %s\n",I,strerror(result));
+    exit(-1);
+  }
+}
+
+void release_cache_wc(int I){
+  int result = pthread_mutex_unlock(&cache_wc_mutex[I]);
+  if(result != 0){
+    logmsgf(LT_LAMBDA,0,"Unable to release cache writecheck mutex %d: %s\n",I,strerror(result));
+    exit(-1);
+  }
+}
+
+// Called by nubus when something else updates the cache
+void cache_write_check(int access, int I, uint32_t address, uint32_t data){
+  // Is this in the cache?
+  int sector = 0;
+  uint32_t Sector_Addr = address&0xFFFFFFF0;
+  uint8_t Sector_Offset = (address&0xC)>>2;
+  // Bail if this sector isn't allocated somewhere.
+  if(cache_wc_status[I][(Sector_Addr&0xFFFFFF00)>>8] == 0){ return; }
+  // Otherwise search for it.
+  while(sector < 256){
+    if(pS[I].Cache_Sector_Addr[sector] == Sector_Addr){
+      // HIT
+      take_cache_wc(I);
+      // Do we still have it?
+      if(pS[I].Cache_Sector_Addr[sector] == Sector_Addr){
+	// Yes
+	// logmsgf(LT_LAMBDA,2,"CACHE: WRITE CHECK HIT: Request %o Addr 0x%X w/ data 0x%X\n",access,address,data);
+	switch(access){
+	case VM_WRITE:
+	  switch(address&0x03){
+	  case 0:
+	    // FULL WORD
+	    pS[I].Cache_Data[sector][Sector_Offset].word = data;
+	    pS[I].Cache_Status[sector][Sector_Offset] = 0x0F;
+	    break;
+	  case 1:
+	    // Low Half
+	    pS[I].Cache_Data[sector][Sector_Offset].word &= 0xFFFF0000;
+	    pS[I].Cache_Data[sector][Sector_Offset].word |= (data&0xFFFF);
+	    pS[I].Cache_Status[sector][Sector_Offset] |= 0x03;
+	    break;
+	  case 3:
+	    // High half
+	    pS[I].Cache_Data[sector][Sector_Offset].word &= 0x0000FFFF;
+	    pS[I].Cache_Data[sector][Sector_Offset].word |= (data&0xFFFF0000);
+	    pS[I].Cache_Status[sector][Sector_Offset] |= 0x0C;
+	    break;
+	  case 2:
+	    // Block (Invalid)
+	  default:
+	    logmsgf(LT_LAMBDA,0,"CACHE: WRITE CHECK HIT W/ UI MODE %o\n",address&0x03);
+	    exit(-1);
+	  }
+	  break;
+	case VM_BYTE_WRITE:
+	default:
+	  logmsgf(LT_LAMBDA,0,"CACHE: WRITE CHECK HIT W/ UI OP %o\n",access);
+	  exit(-1);
+	}
+	release_cache_wc(I);
+      }else{
+	// We lost it.
+	logmsgf(LT_LAMBDA,2,"CACHE: WRITE CHECK HIT LOST BEFORE CACHE WC MUTEX COULD BE OBTAINED\n");
+	release_cache_wc(I);
+	sector = 0; continue; // Start over
+      }
+    }
+    sector++;
+  }
+}
+
+// Local Bus Interface
+void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
+  int nubus_required = 1;
+  // Hrm...
+  if(pS[I].SM_Clock_Pulse > 0){
+    logmsgf(LT_LAMBDA,0,"LCBUS: DANGER WILL ROBINSON! LCBUS ACCESS IN SM CLOCK PULSE!\n");
+  }
+  // Clear flags
+  pS[I].LCbus_error = 0;
+  pS[I].LCbus_acknowledge = 0;
+  // Log
+  /*
+  if(NUbus_trace == 1){
+    logmsgf(LT_NUBUS,10,"NUBUS: Request %o Addr 0x%X (0%o) w/ data 0x%X (0%o) by dev 0x%X\n",
+	    access,address,address,data,data,master);
+  }
+  */
+  // Put request on bus
+  pS[I].LCbus_Busy = 3;
+  pS[I].LCbus_Address.raw = address;
+  pS[I].LCbus_Request = access;
+  pS[I].LCbus_Data.word = data;
+  // CACHE TEST GOES HERE
+  if(pS[I].Cache_Permit != 0){
+    int sector = 0;
+    uint32_t Sector_Addr = pS[I].LCbus_Address.raw&0xFFFFFFF0;
+    uint8_t Sector_Offset = (pS[I].LCbus_Address.raw&0xC)>>2;
+    /*
+    logmsgf(LT_LAMBDA,2,"CACHE: Request %o Addr 0x%X w/ data 0x%X\n",
+	    pS[I].LCbus_Request,pS[I].LCbus_Address.raw,pS[I].LCbus_Data.word);
+    logmsgf(LT_LAMBDA,2,"CACHE: Packet Code %o, Packetize Writes %o\n",pS[I].Packet_Code,pS[I].Packetize_Writes);
+    */
+    pS[I].Cache_Resolved = 1;
+    // Is this in the cache already?
+    while(sector < 256){
+      if(pS[I].Cache_Sector_Addr[sector] == Sector_Addr){
+	// FOUND IT
+	break;
+      }
+      sector++;
+    }
+    if(sector == 256){
+      // SECTOR MISS
+      // logmsgf(LT_LAMBDA,2,"CACHE: SECTOR MISS\n");
+      // Find an open sector
+      sector = 0;
+      while(sector < 256){
+	if(pS[I].Cache_Sector_Addr[sector] == 0){
+	  // Found open sector. Take it.
+	  take_cache_wc(I);
+	  cache_wc_status[I][(Sector_Addr&0xFFFFFF00)>>8] = 1;
+	  pS[I].Cache_Sector_Addr[sector] = Sector_Addr;
+	  release_cache_wc(I);
+	  pS[I].Cache_Sector_Age[sector] = 0; // New sector
+	  break;
+	}
+	sector++;
+      }
+      if(sector == 256){
+	// CACHE FULL
+	int y = 0;
+	sector = pS[I].Cache_Oldest_Sector;
+	// logmsgf(LT_LAMBDA,0,"CACHE FULL: EVICTING SECTOR %d\n",sector);
+	// This is now a sector hit, etc.
+	pS[I].Cache_Sector_Hit = 1;
+	pS[I].Cache_Sector = sector;
+	// Rewrite address and invalidate data
+	take_cache_wc(I);
+	cache_wc_status[I][(pS[I].Cache_Sector_Addr[sector]&0xFFFFFF00)>>8] = 0;
+	pS[I].Cache_Sector_Addr[sector] = Sector_Addr;
+	cache_wc_status[I][(Sector_Addr&0xFFFFFF00)>>8] = 1;
+	release_cache_wc(I);
+	while(y < 4){
+	  pS[I].Cache_Status[sector][y] = 0;
+	  pS[I].Cache_Data[sector][y].word = 0;
+	  y++;
+	}
+	Age_Cache_Sectors(I,sector,0);
+	// Select the least-recently-used sector and evict it.
+	/*
+	sector = 0;
+	while(sector < 256){
+	  logmsgf(LT_LAMBDA,0,"SECTOR %d AGE %d\n",sector,pS[I].Cache_Sector_Age[sector]);
+	  sector++;
+	}
+	exit(-1);
+	*/
+      }else{
+	// CACHE NOT FULL - We allocated a new sector.
+	// logmsgf(LT_LAMBDA,2,"CACHE: ALLOCATED SECTOR %d\n",sector);
+	// This is now a sector hit
+	pS[I].Cache_Sector_Hit = 1;
+	pS[I].Cache_Sector = sector;
+	Age_Cache_Sectors(I,sector,1);
+      }
+      // Now handle the access.
+      // If this is a word write, we can store directly
+      switch(pS[I].LCbus_Request){
+      case VM_WRITE:
+	switch(pS[I].LCbus_Address.raw&0x3){
+	case 0:
+	  // FULL WORD
+	  // logmsgf(LT_LAMBDA,2,"CACHE: WORD WRITE - STORED DIRECTLY\n");
+	  pS[I].Cache_Data[sector][Sector_Offset].word = pS[I].LCbus_Data.word;
+	  pS[I].Cache_Status[sector][Sector_Offset] = 0x0F;
+	  break;
+	case 1: // LOW HALF
+	case 3: // HI HALF
+	case 2: // BLOCK (invalid)
+	default:
+	  logmsgf(LT_LAMBDA,0,"CACHE: WORD WRITE - UI MODE %o\n",pS[I].LCbus_Address.raw&0x3);
+	  exit(-1);
+	}
+	// Still needs bus for backing write
+	break;
+      case VM_READ:
+	if((pS[I].LCbus_Address.raw&0x3) == 0 && pS[I].Packet_Code != 0){
+	  // BLOCK TRANSFER
+	  pS[I].LCbus_Address.raw |= 0x2; // Set block transfer mode
+	  // logmsgf(LT_LAMBDA,2,"CACHE: WORD READ - DOING BLOCK TRANSFER FROM 0x%.8X\n",pS[I].LCbus_Address.raw);
+	}else{
+	  // logmsgf(LT_LAMBDA,2,"CACHE: WORD READ - DOING BUS READ\n");
+	}
+	// Needs bus to fill cache
+	break;
+      default:
+	logmsgf(LT_LAMBDA,0,"CACHE: SECTOR MISS W/ UI OP %o\n",pS[I].LCbus_Request);
+	exit(-1);
+	break;
+      }
+    }else{
+      // SECTOR HIT
+      // logmsgf(LT_LAMBDA,2,"CACHE: SECTOR HIT, SECTOR %d\n",sector);
+      pS[I].Cache_Sector_Hit = 1;
+      pS[I].Cache_Sector = sector;
+      Age_Cache_Sectors(I,sector,0);
+      // Data hit?
+      switch(pS[I].LCbus_Request){
+      case VM_WRITE:
+	// Store the word and carry on for the backing write.
+	switch(pS[I].LCbus_Address.raw&0x3){
+	case 0:
+	  // FULL WORD
+	  // logmsgf(LT_LAMBDA,2,"CACHE: WORD WRITE - STORED DIRECTLY\n");
+	  pS[I].Cache_Data[sector][Sector_Offset].word = pS[I].LCbus_Data.word;
+	  pS[I].Cache_Status[sector][Sector_Offset] = 0x0F;
+	  break;
+	case 1: // LOW HALF
+	case 3: // HI HALF
+	case 2: // BLOCK (invalid)
+	default:
+	  logmsgf(LT_LAMBDA,0,"CACHE: WORD WRITE - UI MODE %o\n",pS[I].LCbus_Address.raw&0x3);
+	  exit(-1);
+	}
+	break;
+
+      case VM_READ:
+	// Do we have it?
+	switch(pS[I].LCbus_Address.raw&0x3){
+	case 0: // FULL WORD
+	  // Requires the whole word.
+	  if(pS[I].Cache_Status[sector][Sector_Offset] == 0x0F){
+	    // CACHE HIT
+	    // logmsgf(LT_LAMBDA,2,"CACHE: CACHE HIT - WORD READ\n");
+	    nubus_required = 0; // Don't need the bus
+	  }else{
+	    // CACHE MISS
+	    if(pS[I].Packet_Code != 0){
+	      // BLOCK TRANSFER
+	      pS[I].LCbus_Address.raw |= 0x2; // Set block transfer mode
+	      // logmsgf(LT_LAMBDA,2,"CACHE: CACHE MISS - DOING BLOCK TRANSFER FROM 0x%.8X\n",pS[I].LCbus_Address.raw);
+	    }else{
+	      // logmsgf(LT_LAMBDA,2,"CACHE: CACHE MISS - WORD READ\n");
+	    }
+	  }
+	  break;
+	case 1: // LOW HALF
+	case 3: // HI HALF
+	case 2: // BLOCK (invalid)
+	default:
+	  logmsgf(LT_LAMBDA,0,"CACHE: WORD READ - UI MODE %o\n",pS[I].LCbus_Address.raw&0x3);
+	  exit(-1);
+	}
+	break;
+
+      default:
+	logmsgf(LT_LAMBDA,0,"CACHE: SECTOR HIT W/ UI OP %o\n",pS[I].LCbus_Request);
+	pS[I].cpu_die_rq = 1;
+	break;
+      }
+    }
+    // We need the NUbus.
+    if(nubus_required == 1){
+      // logmsgf(LT_LAMBDA,2,"CACHE: Taking nubus mastership and issuing request\n");
+      maybe_take_nubus_mastership(I);
+      nubus_io_request(pS[I].LCbus_Request,pS[I].NUbus_ID,pS[I].LCbus_Address.raw,pS[I].LCbus_Data.word);
+    }else{
+      if(pS[I].NUbus_Master == 1){
+	logmsgf(LT_LAMBDA,0,"CACHE: NO NEED FOR BUS BUT WE STILL HAVE IT?\n");
+	exit(-1);
+      }
+    }
+    return;
+  }
+  maybe_take_nubus_mastership(I);
+  nubus_io_request(access,pS[I].NUbus_ID,address,data);
+}
+
 // Destination selector handling
 void handle_destination(int I){
   if(pS[I].Iregister.Destination.A.Flag != 0){
@@ -1595,7 +2080,7 @@ void handle_destination(int I){
 	// Addressed by the previous instruction, so loc_ctr_reg
 	if(pS[I].microtrace){
 	  logmsgf(LT_LAMBDA,10,"CRAM WRITE HI: Addr %o w/ data %o\n",pS[I].loc_ctr_reg.raw,pS[I].Obus);
-	}	
+	}
         {
           int addr = pS[I].loc_ctr_reg.raw;
           int paddr = pS[I].CRAM_map[addr>>4]&03777;
@@ -1630,10 +2115,10 @@ void handle_destination(int I){
 	// See documentation for DP_Mode register
 	if((pS[I].DP_Mode.PDL_Addr_Hi) == 0){
 	  pS[I].pdl_ptr_reg &= 0xFFF;
-	  pS[I].Mmemory[pS[I].pdl_ptr_reg] = pS[I].Obus;	  
+	  pS[I].Mmemory[pS[I].pdl_ptr_reg] = pS[I].Obus;
 	}else{
 	  pS[I].pdl_ptr_reg &= 0x7FF;
-	  pS[I].Mmemory[0x800+pS[I].pdl_ptr_reg] = pS[I].Obus;	  
+	  pS[I].Mmemory[0x800+pS[I].pdl_ptr_reg] = pS[I].Obus;
 	}
         if(pS[I].microtrace || pS[I].macrotrace){
 	  logmsgf(LT_LAMBDA,10,"MI: C-PDL-BUFFER-POINTER: Addr Hi = 0x%X, PTR = %o, DATA = %o\n",
@@ -1645,10 +2130,10 @@ void handle_destination(int I){
 	pS[I].pdl_ptr_reg++;
 	if((pS[I].DP_Mode.PDL_Addr_Hi) == 0){
 	  pS[I].pdl_ptr_reg &= 0xFFF;
-	  pS[I].Mmemory[pS[I].pdl_ptr_reg] = pS[I].Obus;	  
+	  pS[I].Mmemory[pS[I].pdl_ptr_reg] = pS[I].Obus;
 	}else{
 	  pS[I].pdl_ptr_reg &= 0x7FF;
-	  pS[I].Mmemory[0x800+pS[I].pdl_ptr_reg] = pS[I].Obus;	  
+	  pS[I].Mmemory[0x800+pS[I].pdl_ptr_reg] = pS[I].Obus;
 	}
         if(pS[I].microtrace || pS[I].macrotrace){
 	  logmsgf(LT_LAMBDA,10,"MI: C-PDL-BUFFER-POINTER-PUSH: Addr Hi = 0x%X, NEW PTR = %o, DATA = %o\n",
@@ -1675,7 +2160,7 @@ void handle_destination(int I){
 	if((pS[I].DP_Mode.PDL_Addr_Hi) == 0){
 	  pS[I].pdl_ptr_reg = pS[I].Obus&0xFFF;
 	}else{
-	  pS[I].pdl_ptr_reg = pS[I].Obus&0x7FF;	  
+	  pS[I].pdl_ptr_reg = pS[I].Obus&0x7FF;
 	}
         if(pS[I].microtrace || pS[I].macrotrace){
 	  logmsgf(LT_LAMBDA,10,"MI: PDL-BUFFER-POINTER: Addr Hi = 0x%X, PTR = %o, DATA = %o\n",
@@ -1729,7 +2214,7 @@ void handle_destination(int I){
 	  if(pS[I].RG_Mode.Main_Stat_Count_Control == 01){
 	    pS[I].stat_counter_main++;
 	  }
-	  nubus_io_request(pS[I].vm_byte_mode|VM_READ,pS[I].NUbus_ID,pS[I].vm_phys_addr.raw,0);
+	  lcbus_io_request(pS[I].vm_byte_mode|VM_READ,I,pS[I].vm_phys_addr.raw,0);
 	}
 	break;
       case 022: // LAM-FUNC-DEST-VMA-START-WRITE
@@ -1744,16 +2229,16 @@ void handle_destination(int I){
 	  if(pS[I].RG_Mode.Main_Stat_Count_Control == 01){
 	    pS[I].stat_counter_main++;
 	  }
-	  nubus_io_request(pS[I].vm_byte_mode|VM_WRITE,pS[I].NUbus_ID,pS[I].vm_phys_addr.raw,pS[I].MDregister.raw);
+	  lcbus_io_request(pS[I].vm_byte_mode|VM_WRITE,I,pS[I].vm_phys_addr.raw,pS[I].MDregister.raw);
 	}
 	break;
       case 023: // LAM-FUNC-DEST-L1-MAP
 	// Requires SLOW-DEST
 	// Addressed by MD
-	// 20000 per page	
+	// 20000 per page
 	// pS[I].vm_lv1_map[ldb(pS[I].MDregister.raw,12,13)].raw = pS[I].Obus;
 	pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].raw = pS[I].Obus;
-	// cached_lv1 = pS[I].VMAregister;	
+	// cached_lv1 = pS[I].VMAregister;
 	if(pS[I].microtrace){
           logmsgf(LT_LAMBDA,10,"VM: WRITE LV1 ENT 0x%X DATA 0x%X RESULT 0x%X (Meta %o Validity %o LV2_Block %o)\n",
 		 pS[I].MDregister.VM.VPage_Block,
@@ -1775,14 +2260,14 @@ void handle_destination(int I){
 	// If we wrote something we don't understand, stop.
 	/*
 	if(pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Byte_Code != 0){
-	  logmsgf(LT_LAMBDA,10,"LV2 CTL BYTE CODE WRITE\n"); 
+	  logmsgf(LT_LAMBDA,10,"LV2 CTL BYTE CODE WRITE\n");
 	  pS[I].cpu_die_rq = 1;
 	}
 	*/
 	if(pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packetize_Writes){ logmsgf(LT_LAMBDA,0,"LV2 CTL PACKETIZED WRITE\n"); pS[I].cpu_die_rq = 1; }
 	if(pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Lock_NUbus){ logmsgf(LT_LAMBDA,0,"LV2 CTL LOCK NUBUS\n"); pS[I].cpu_die_rq = 1; }
 	if(pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Unused != 0){
-	  logmsgf(LT_LAMBDA,0,"LV2 CTL UNUSED WRITE\n"); 
+	  logmsgf(LT_LAMBDA,0,"LV2 CTL UNUSED WRITE\n");
 	  pS[I].cpu_die_rq = 1;
 	}
 	// Invert the meta bits?
@@ -1809,7 +2294,7 @@ void handle_destination(int I){
       case 030: // LAM-FUNC-DEST-MD
 	pS[I].MDregister.raw = pS[I].Obus;
 	// cached_lv1 = pS[I].vm_lv1_map[ldb(pS[I].Obus,12,13)];
-	break;	
+	break;
       case 032: // LAM-FUNC-DEST-MD-START-WRITE
 	pS[I].MDregister.raw = pS[I].Obus;
 	VM_resolve_address(I,VM_WRITE,0);
@@ -1821,7 +2306,7 @@ void handle_destination(int I){
 	  if(pS[I].RG_Mode.Main_Stat_Count_Control == 01){
 	    pS[I].stat_counter_main++;
 	  }
-	  nubus_io_request(pS[I].vm_byte_mode|VM_WRITE,pS[I].NUbus_ID,pS[I].vm_phys_addr.raw,pS[I].MDregister.raw);
+	  lcbus_io_request(pS[I].vm_byte_mode|VM_WRITE,I,pS[I].vm_phys_addr.raw,pS[I].MDregister.raw);
 	}
 	break;
       case 033: // LAM-FUNC-DEST-C-PDL-INDEX-INC
@@ -1871,7 +2356,7 @@ void handle_destination(int I){
 	  pS[I].Multiplier_FT = x*y;
 	  // Generate output too
 	  // x = pS[I].Multiplier_Input&0x7FFF;
-	  // y = ((pS[I].Multiplier_Input>>15)&0x7FFF);	  
+	  // y = ((pS[I].Multiplier_Input>>15)&0x7FFF);
 	  pS[I].Multiplier_Output = pS[I].Multiplier_FT;
 	  if(pS[I].microtrace){
 	    logmsgf(LT_LAMBDA,10,"MULTIPLIER: INPUT = 0x%X, X = 0x%X, Y = 0x%X, FT = 0x%X, OUT = 0x%X\n",
@@ -1921,7 +2406,7 @@ void handle_destination(int I){
 	if((pS[I].DP_Mode.PDL_Addr_Hi) == 0){
 	  pS[I].pdl_index_reg = pS[I].Obus&0xFFF;
 	}else{
-	  pS[I].pdl_index_reg = pS[I].Obus&0x7FF;	  
+	  pS[I].pdl_index_reg = pS[I].Obus&0x7FF;
 	}
         if(pS[I].microtrace || pS[I].macrotrace){
 	  logmsgf(LT_LAMBDA,10,"MI: PDL-BUFFER-INDEX: Addr Hi = 0x%X, INDEX = %o, DATA = %o\n",
@@ -1940,7 +2425,7 @@ void handle_destination(int I){
 	  if(pS[I].RG_Mode.Main_Stat_Count_Control == 01){
 	    pS[I].stat_counter_main++;
 	  }
-	  nubus_io_request(pS[I].vm_byte_mode|VM_READ,pS[I].NUbus_ID,pS[I].vm_phys_addr.raw,0);
+	  lcbus_io_request(pS[I].vm_byte_mode|VM_READ,I,pS[I].vm_phys_addr.raw,0);
 	}
 	break;
       case 064: // LAM-FUNC-DEST-L2-MAP-PHYSICAL-PAGE
@@ -1966,7 +2451,7 @@ void handle_destination(int I){
 	  if(pS[I].RG_Mode.Main_Stat_Count_Control == 01){
 	    pS[I].stat_counter_main++;
 	  }
-	  nubus_io_request(pS[I].vm_byte_mode|VM_WRITE,pS[I].NUbus_ID,pS[I].vm_phys_addr.raw,pS[I].MDregister.raw);
+	  lcbus_io_request(pS[I].vm_byte_mode|VM_WRITE,I,pS[I].vm_phys_addr.raw,pS[I].MDregister.raw);
 	}
 	break;
       default:
@@ -1974,7 +2459,7 @@ void handle_destination(int I){
 	pS[I].cpu_die_rq = 1;
       }
     }
-  } 
+  }
 }
 
 // NUbus Slave
@@ -2010,7 +2495,7 @@ void lambda_nubus_slave(int I){
           NUbus_acknowledge = 1;
           return;
         }
-	break;	
+	break;
 
       case 001: // CSM.ADR
 	// special address register for debug read/write of (It says TRAM, but meant CSMRAM?), low 12 bits, read and write
@@ -2046,7 +2531,7 @@ void lambda_nubus_slave(int I){
           NUbus_acknowledge=1;
           return;
         }
-	break;	
+	break;
 
       case 002: // CSM.REG
 	// Output register of CSM. Read-only.
@@ -2477,7 +2962,7 @@ void lambda_nubus_slave(int I){
 	      pS[I].InterruptStatus[x] = 0;
 	      x++;
 	    }
-	    pS[I].InterruptVector = 0;	    
+	    pS[I].InterruptVector = 0;
 	  }
 	  if(pS[I].PMR.Force_T_Hold != 0){
 	    if(oldPMR.Force_T_Hold == 0){
@@ -2489,54 +2974,24 @@ void lambda_nubus_slave(int I){
 	    if(oldPMR.Force_T_Hold != 0){
 	      logmsgf(LT_LAMBDA,10,"RG: PMR: FORCE-T-HOLD CLEARED\n");
 	      pS[I].exec_hold = false;
-	      pS[I].ConReg.t_hold_l = 1; // Not Holding	      
+	      pS[I].ConReg.t_hold_l = 1; // Not Holding
 	    }
 	  }
 	  // If CONREG Enable_SM_Clock is clear, the SM clock is controlled by PMR Debug_Clock
 	  if(pS[I].ConReg.Enable_SM_Clock == 0){
-	    sm_clock_pulse(I,pS[I].PMR.Debug_Clock,&oldPMR);
-	  }
-	  // What about the uinst clock?
-	  // If the SM clock is running or being stepped, we can run it.	  
-	  /*
-	  if((pS[I].PMR.Allow_UInst_Clocks != 0) &&
-	     (pS[I].ConReg.Enable_SM_Clock == 1 || (pS[I].ConReg.Enable_SM_Clock == 0 && (oldPMR.Debug_Clock == 0 && pS[I].PMR.Debug_Clock == 1)))){
-	    if(pS[I].PMR.Allow_UInst_Clocks != 0){
-	      if(pS[I].TRAM_PC == 03001){
-		// This really happens at 03000, but since we just changed it if we stepped...
-		logmsgf(LT_LAMBDA,10,"RG %d: PMR: UINST CLOCK ENABLED\n",I);
-		// Dummy out the "just clearing the pipeline" SETZs here.
-		if(pS[I].Iregister.word[0] == 0x00000000 && pS[I].Iregister.word[1] == 0xF0000000){
-		  logmsgf(LT_LAMBDA,10,"RG: PMR: Pipeline clearing detected, not stepping\n");
-		  // Update PC.
-		  pS[I].loc_ctr_cnt = pS[I].loc_ctr_reg.raw; // Prepare to fetch next.
-		  // If AfterNEXT
-		  if(pS[I].loc_ctr_nxt != -1){
-		    pS[I].loc_ctr_reg.raw = pS[I].loc_ctr_nxt; // Load next instruction
-		    pS[I].loc_ctr_nxt = -1;          // Disarm
-		  }else{
-		    pS[I].loc_ctr_reg.raw = pS[I].loc_ctr_cnt + 1; // Otherwise get next instruction
-		  }
-		  pS[I].last_loc_ctr = pS[I].loc_ctr_reg.raw;    // Save This
-		  // Process HPTR
-		  pS[I].History_RAM[pS[I].History_Pointer&0xFFF] = pS[I].loc_ctr_cnt;
-		  pS[I].History_Pointer++; 
-		  if(pS[I].History_Pointer > 0xFFF){ pS[I].History_Pointer = 0; }
-		}else{
-		  pS[I].cpu_die_rq = 0;
-		  // pS[I].microtrace = 1;
-		}
-	      }else{
-		logmsgf(LT_LAMBDA,10,"RG: PMR: UINST CLOCK ENABLED @ TRAM_ADR 0%o, WAITING FOR 3001\n",pS[I].TRAM_PC);
-		// logmsgf(LT_LAMBDA,10,", UFETCH ARMED\n");
-	      }
-	    }else{
-	      pS[I].ConReg.uinst_clock_l = 1; // Not Uinst
-	      logmsgf(LT_LAMBDA,10,"RG %d: PMR: UINST CLOCK DISABLED\n",I);
-	      pS[I].cpu_die_rq = 1;
+	    // FIXME: HAVE THE TARGET PROESSOR THREAD EXECUTE THIS
+	    // OR WE WILL FAIL WHEN ACCESSING THE BUS (LAM DOES THIS)
+	    pS[I].SM_Old_PMR = &oldPMR;
+	    pS[I].SM_Clock_Pulse++;
+	    // logmsgf(LT_LAMBDA,0,"LAMBDA %d: SM CLOCK PULSE REQUEST\n",I);
+	    // sm_clock_pulse(I,pS[I].PMR.Debug_Clock,&oldPMR);
+	    while(pS[I].SM_Clock_Pulse > 0){
+	      struct timespec sleep_time;
+	      sleep_time.tv_sec = 0;
+	      sleep_time.tv_nsec = 200;
+	      nanosleep(&sleep_time,NULL); // Wait for it to complete
 	    }
 	  }
-	  */
 	  // UInst Advance
 	  if(pS[I].PMR.Advance_UInst_Request != 0 && oldPMR.Advance_UInst_Request == 0){
 	    // a transition from 0 to 1 causes a single uinst step, or tries to restart the lambda if it is in a halted state
@@ -2555,7 +3010,7 @@ void lambda_nubus_slave(int I){
 	  logmsgf(LT_LAMBDA,10,"RG: SPY: PMR Read, data 0x%X\n",NUbus_Data.word);
 	  NUbus_acknowledge = 1;
 	  return;
-	}		
+	}
 	if(NUbus_Request == VM_BYTE_READ){
 	  uint32_t Word = (((pS[I].PMR.raw&0x00FFFFFF)<<8)|0xFF);
 	  Word >>= (8*NUbus_Address.Byte);
@@ -2564,7 +3019,7 @@ void lambda_nubus_slave(int I){
 	  NUbus_acknowledge=1;
 	  return;
 	}
-	break;	
+	break;
 
       case 021: // PARITY VECTOR
         if(NUbus_Request == VM_WRITE){
@@ -2584,7 +3039,7 @@ void lambda_nubus_slave(int I){
       case 022: // CRAM ADR MAP
 	// Addressed by PC
 	if(NUbus_Request == VM_WRITE || NUbus_Request == VM_BYTE_WRITE){
-          int map_addr = ((pS[I].loc_ctr_reg.raw&0xFFFF)>>4); 
+          int map_addr = ((pS[I].loc_ctr_reg.raw&0xFFFF)>>4);
 	  uint32_t Word = NUbus_Data.word;
           if(NUbus_Request == VM_BYTE_WRITE){
             uint32_t Mask = 0xFF;
@@ -2616,7 +3071,7 @@ void lambda_nubus_slave(int I){
           NUbus_acknowledge=1;
           return;
         }
-        break;	
+        break;
 
       }
       logmsgf(LT_LAMBDA,0,"RG: Unimplemented SPY Request %o Addr 0x%X (Reg 0%o) w/ data 0x%X (0%o)\n",
@@ -2663,11 +3118,11 @@ void lambda_nubus_slave(int I){
       // HANDLE THOSE BITS
       if(pS[I].ConReg.Init == 1){
 	logmsgf(LT_LAMBDA,10,"CONREG: INIT\n");
-	lambda_initialize(I,0);	
+	lambda_initialize(I,0);
 	pS[I].ConReg.Init = 0; // This makes newboot happy
       }
       if(pS[I].ConReg.Enable_SM_Clock == 1){
-	logmsgf(LT_LAMBDA,10,"CONREG %d: ENABLE SM CLOCK\n",I);	
+	logmsgf(LT_LAMBDA,10,"CONREG %d: ENABLE SM CLOCK\n",I);
 	if(pS[I].cpu_die_rq != 0){
 	  if(pS[I].PMR.Allow_UInst_Clocks != 0){
 	    extern int cp_state[2];
@@ -2691,13 +3146,13 @@ void lambda_nubus_slave(int I){
 	      }else{
 		logmsgf(LT_LAMBDA,10,"LAMBDA %d UNKNOWN START POINT %o\n",I,pS[I].loc_ctr_reg.raw);
 	      }
-	    }	    
+	    }
 	  }else{
-	    logmsgf(LT_LAMBDA,10,"CONREG: Lambda not enabled, PMR.Allow_UInst_Clocks is off\n");	    
+	    logmsgf(LT_LAMBDA,10,"CONREG: Lambda not enabled, PMR.Allow_UInst_Clocks is off\n");
 	  }
 	}
       }else{
-	logmsgf(LT_LAMBDA,10,"CONREG %d: DISABLE SM CLOCK\n",I);	
+	logmsgf(LT_LAMBDA,10,"CONREG %d: DISABLE SM CLOCK\n",I);
 	pS[I].cpu_die_rq = 1; // Ensure stopped
 	pS[I].ConReg.LED = 1; // Not inverted - Does this force LED?
 	// pS[I].ConReg.uinst_clock_l = 1; // HACK HACK
@@ -2715,7 +3170,7 @@ void lambda_nubus_slave(int I){
   case 0xFFF7FE:
   case 0xFFF7FF:
     if(NUbus_Request == VM_BYTE_READ){
-      NUbus_Data.byte[NUbus_Address.Byte] = pS[I].ConReg.byte[NUbus_Address.Byte]; 
+      NUbus_Data.byte[NUbus_Address.Byte] = pS[I].ConReg.byte[NUbus_Address.Byte];
       logmsgf(LT_LAMBDA,10,"RG %d: CON REG byte read, data 0x%X\n",I,NUbus_Data.byte[NUbus_Address.Byte]);
       NUbus_acknowledge=1;
       return;
@@ -2723,7 +3178,7 @@ void lambda_nubus_slave(int I){
     break;
 
     // Configuration PROM
-  case 0xfff800 ... 0xffff63:    
+  case 0xfff800 ... 0xffff63:
     if((NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ)
        && NUbus_Address.Byte == 0){
       uint8_t prom_addr = (NUbus_Address.Addr-0xfff800)/4;
@@ -2733,7 +3188,7 @@ void lambda_nubus_slave(int I){
 	NUbus_Data.word = 0;
       }
       NUbus_acknowledge=1;
-      return; 
+      return;
     }
     break;
 
@@ -2755,11 +3210,11 @@ void lambda_nubus_slave(int I){
 
   // Otherwise die
   logmsgf(LT_LAMBDA,0,"RG: Unimplemented address: 0x%X\n",NUbus_Address.Addr);
-  pS[I].cpu_die_rq = 1;  
+  pS[I].cpu_die_rq = 1;
 }
 
 // State Machine Clock Pulse
-void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
+void sm_clock_pulse(int I,int clock,volatile Processor_Mode_Reg *oldPMR){
   int old_clock = pS[I].SM_Clock;
   pS[I].SM_Clock = clock;
   if(clock == 0){
@@ -2792,7 +3247,8 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	if(pS[I].NOP_Next != 0 && pS[I].PMR.Clear_NOP == 0){
 	  pS[I].ConReg.nop = 1;
 	}
-	logmsgf(LT_LAMBDA,10,"TREG %d: New uPC: CNT %.4o REG %.4o NXT %.o\n",I,pS[I].loc_ctr_cnt,pS[I].loc_ctr_reg.raw,pS[I].loc_ctr_nxt); 
+	logmsgf(LT_LAMBDA,10,"TREG %d: New uPC: CNT %.4o REG %.4o NXT %.o\n",
+		I,pS[I].loc_ctr_cnt,pS[I].loc_ctr_reg.raw,pS[I].loc_ctr_nxt);
       }
       // Update UI clock.
       if(pS[I].ConReg.uinst_clock_l != 1){
@@ -2858,41 +3314,41 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	  if(pS[I].Iregister.Jump.LC_Increment != 0){ logmsgf(LT_LAMBDA,0," LCINC"); pS[I].cpu_die_rq = 1; }
 	  if(pS[I].Iregister.Jump.Spare != 0){ logmsgf(LT_LAMBDA,0," JUMP-SPARE"); pS[I].cpu_die_rq = 1; }
 	  if(pS[I].Iregister.Jump.Spare2 != 0){ logmsgf(LT_LAMBDA,0," JUMP-SPARE2"); pS[I].cpu_die_rq = 1; }
-		    
+
 	  // Handle condition
 	  pS[I].test_true = false;
 	  if(pS[I].Iregister.Jump.Test != 0){
 	    // Operate ALU
 	    alu_sub_stub(I,0); // Do M-A
 	    alu_cleanup_result(I);
-		      
-	    // Perform test      
+
+	    // Perform test
 	    switch(pS[I].Iregister.Jump.Cond){
-			
+
 	    case 01: // LAM-JUMP-COND-M<A
 	      if((0x80000000^pS[I].Mbus) < (0x80000000^pS[I].Abus)){
 		pS[I].test_true = true;
 	      }
 	      break;
-			
+
 	    case 02: // LAM-JUMP-COND-M<=A
 	      if((pS[I].Abus == 0 && pS[I].Mbus == 0x80000000) || ((pS[I].ALU_Result&0x80000000) != 0)){
 		pS[I].test_true = true;
 	      }
 	      break;
-			
+
 	    case 03: // M != A
 	      if(pS[I].ALU_Result != 0xFFFFFFFF){
 		pS[I].test_true = true;
 	      }
 	      break;
-			
+
 	    case 04: // LAM-JUMP-COND-PAGE-FAULT (INVERTED!)
 	      if(pS[I].Page_Fault == 0){
 		pS[I].test_true = 1;
 	      }
 	      break;
-			
+
 	    case 05: // LAM-JUMP-COND-PAGE-FAULT-OR-INTERRUPT
 	      if(pS[I].Page_Fault != 0){
 		pS[I].test_true = 1;
@@ -2914,7 +3370,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		}
 	      }
 	      break;
-			
+
 	    case 06: // LAM-JUMP-COND-PAGE-FAULT-OR-INTERRUPT-OR-SEQUENCE-BREAK
 	      // SEQUENCE BREAK BIT IS INVERTED
 	      if(pS[I].Page_Fault != 0 || pS[I].RG_Mode.Sequence_Break == 0){
@@ -2937,17 +3393,17 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		}
 	      }
 	      break;
-			
+
 	    case 07: // LAM-JUMP-COND-UNC
 	      pS[I].test_true = true;
 	      break;
-			
+
 	    case 011: // LAM-JUMP-COND-DATA-TYPE-NOT-EQUAL
 	      if((pS[I].Mbus&0x3E000000) != (pS[I].Abus&0x3E000000)){
 		pS[I].test_true = true;
 	      }
 	      break;
-			
+
 	    default:
 	      logmsgf(LT_LAMBDA,0,"Unknown jump cond %o\n",pS[I].Iregister.Jump.Cond);
 	      pS[I].cpu_die_rq = 1;
@@ -2959,7 +3415,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	  // If the invert bit is set, reverse the condition
 	  if(pS[I].Iregister.Jump.Invert){
 	    pS[I].test_true ^= 1;
-	  }		    
+	  }
 	  break;
 	case 3: // DISP-OP
 	  // logmsgf(LT_LAMBDA,10,"TREG: DISPATCH-OP\n");
@@ -2970,7 +3426,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	    int oldspace_flag;
 	    int disp_address=0;
 	    // DispatchWord disp_word;
-	    
+
 	    // Stop for investigation if...
 	    // if(pS[I].Iregister.Dispatch.Constant > 0){ logmsgf(LT_LAMBDA,10,"Constant "); pS[I].cpu_die_rq = 1; }
 	    // if(pS[I].Iregister.Dispatch.LPC > 0){ logmsgf(LT_LAMBDA,10,"LPC "); pS[I].cpu_die_rq = 1; }
@@ -2979,15 +3435,15 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	    // if(pS[I].Iregister.Dispatch.Enable_Oldspace_Meta > 0){ logmsgf(LT_LAMBDA,10,"EnableOldspaceMeta "); pS[I].cpu_die_rq = 1; }
 	    if(pS[I].Iregister.Dispatch.Spare > 0){ logmsgf(LT_LAMBDA,0,"DISP-SPARE "); pS[I].cpu_die_rq = 1; }
 	    // if(pS[I].popj_after_nxt != -1){ logmsgf(LT_LAMBDA,10,"DISPATCH with POPJ-AFTER-NEXT armed?\n"); pS[I].cpu_die_rq = 1; }
-	    
+
 	    // Load VMA from M source
 	    if(pS[I].Iregister.Dispatch.Write_VMA != 0){ pS[I].VMAregister.raw = pS[I].Mbus; }
-	    
+
 	    // Lambda doesn't have dispatch-source, so I assume it's always R-bus
-	    Mask = (1 << pS[I].Iregister.Dispatch.Len) - 1;      
+	    Mask = (1 << pS[I].Iregister.Dispatch.Len) - 1;
 	    // Meta handling
 	    if(pS[I].Iregister.Dispatch.Enable_GC_Volatility_Meta || pS[I].Iregister.Dispatch.Enable_Oldspace_Meta){
-	      Mask = Mask & 0xfffffffe;	
+	      Mask = Mask & 0xfffffffe;
 	    }
 	    // Investigation stop
 	    if(pS[I].Iregister.Dispatch.Enable_GC_Volatility_Meta && pS[I].Iregister.Dispatch.Enable_Oldspace_Meta){
@@ -2997,14 +3453,14 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	    if(pS[I].microtrace){
 	      logmsgf(LT_LAMBDA,10,"DISPATCH: GENERATED MASK 0x%X\n",Mask);
 	    }
-	    
+
 	    // Lambda does not have a rotate direction flag.
 	    dispatch_source = left_rotate(pS[I].Mbus, pS[I].Iregister.Dispatch.Pos) & Mask;
-	    
+
 	    if(pS[I].microtrace){
 	      logmsgf(LT_LAMBDA,10,"DISPATCH: dispatch_source = 0x%X\n",dispatch_source);
 	    }
-	    
+
 	    // More meta bits
 	    gc_volatilty_flag = 0;
 	    if(pS[I].Iregister.Dispatch.Enable_GC_Volatility_Meta != 0){
@@ -3013,7 +3469,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	      // Bit 4?
 	      // "MAP2C-4 IS REALLY FROM THE GC-WRITE-LOGIC, NOT DIRECTLY THE L2MAP, THESE DAYS."
 	      // GCV happens when a NEWER object is written into an OLDER memory.
-	      
+
 	      // Do a map resolve for what's in MD
 	      pS[I].vm_lv2_index.raw = 0;
 	      pS[I].vm_lv2_index.VPage_Offset = pS[I].MDregister.VM.VPage_Offset;
@@ -3023,9 +3479,9 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	      present_gcv = (~pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB) & 03;
 	      // Raven's CACHED GCV is (lv2_control & 0x1800) >> 11;
 	      // GCV FLAG is (cached_gcv + 4 > (map_1_volatility ^ 7)) ? 0 : 1;
-	      
+
 	      // Our CACHED GCV is the lv2 meta bits of the last reference.
-	      
+
 	      // LV1 Meta Bits:
 	      // 2 bits!
 	      // "For hardware convenience, all three L1 map meta bits are stored in COMPLEMENTED form."
@@ -3034,30 +3490,30 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	      // 1 (2) = Dynamic Region
 	      // 2 (1) = Active Consing Region
 	      // 3 (0) = Extra PDL Region (NEWEST)
-	      
+
 	      // LV2 Meta Bits:
 	      // 6 bits! But the bottom 2 bits are the same as the LV1 bits.
 	      // 040 = Oldspace
 	      // 020 = GCV-Flag
 	      // 003 = LV1 GC Volatility
-	      
+
 	      // So, if CACHED GCV is less than PRESENT GCV we wrote a newer item into an older page.
 	      // The trap is taken if the flag is 0, so we want the inverse.
 	      // What do I do if the MB validity bit isn't set?
-	      
+
 	      // Meta bits are un-inverted now.
 	      // gc_volatilty_flag 1 == don't trap
 	      // So we want to set it 0 if we should trap.
 	      // if(pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB_Valid != 0){ logmsgf(LT_LAMBDA,10,"GCV: LV1 invalid?\n"); pS[I].cpu_die_rq=1; } // Investigate
 	      // if((pS[I].cached_gcv&03) <= present_gcv && pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB_Valid == 0){ gc_volatilty_flag = 1; }else{ pS[I].cpu_die_rq=0; } // ILLOP at PHTDEL6+11
-	      
+
 	      // This comparison is correct for non-inverted meta.
 	      // For the moment, LV1 invalidity forces a trap. This isn't conclusively proven correct, and may change.
 	      // if((pS[I].cached_gcv&03) > present_gcv && pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB_Valid == 0){ gc_volatilty_flag = 1; }
 	      if(pS[I].cached_gcv <= present_gcv && pS[I].vm_lv1_map[pS[I].MDregister.VM.VPage_Block].MB_Valid == 0){
 		gc_volatilty_flag = 1;
 	      }
-	      
+
 	      if(pS[I].microtrace){
 		logmsgf(LT_LAMBDA,10,"DISPATCH: GCV: CACHED (LV2) GCV 0x%X\n",pS[I].cached_gcv&03);
 		logmsgf(LT_LAMBDA,10,"DISPATCH: GCV: PRESENT (LV1) GCV 0x%X\n",present_gcv);
@@ -3122,7 +3578,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	  }
 	*/
 	// Fetch TREG
-	pS[I].TREG = pS[I].TRAM[pS[I].TRAM_PC];		  
+	pS[I].TREG = pS[I].TRAM[pS[I].TRAM_PC];
 	// Advance TRAM_PC
 	switch(pS[I].TRAM_PC){
 	default:
@@ -3153,7 +3609,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	  case 1: // JUMP
 	    pS[I].TRAM_PC = 03000+pS[I].TREG.state;
 	    break;
-	  default: 
+	  default:
 	    logmsgf(LT_LAMBDA,10,"TREG %d: Unknown NEXT-SELECT %o\n",I,pS[I].TREG.next_select);
 	    break;
 	  }
@@ -3191,7 +3647,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	if(pS[I].NOP_Next != 0 && pS[I].PMR.Clear_NOP == 0){
 	  pS[I].ConReg.nop = 1;
 	}
-	logmsgf(LT_LAMBDA,10,"TREG %d: New uPC: CNT %.4o REG %.4o NXT %.o\n",I,pS[I].loc_ctr_cnt,pS[I].loc_ctr_reg.raw,pS[I].loc_ctr_nxt); 
+	logmsgf(LT_LAMBDA,10,"TREG %d: New uPC: CNT %.4o REG %.4o NXT %.o\n",I,pS[I].loc_ctr_cnt,pS[I].loc_ctr_reg.raw,pS[I].loc_ctr_nxt);
       }
       // Update UI clock.
       if(pS[I].ConReg.uinst_clock_l != 1){
@@ -3218,7 +3674,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	pS[I].History_RAM[pS[I].History_Pointer&0xFFF] = pS[I].loc_ctr_cnt;
 	pS[I].Next_History_Pointer = pS[I].History_Pointer+1;
 	if(pS[I].Next_History_Pointer > 0xFFF){ pS[I].Next_History_Pointer = 0; }
-      }      
+      }
       // Ensure stopped
       pS[I].cpu_die_rq = 1;
     }
@@ -3235,7 +3691,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	logmsgf(LT_LAMBDA,10,"TREG %d: UI CLOCK RISING EDGE\n",I);
 	// Light halt req bit?
 	if((pS[I].Iregister.Halt)){
-	  if(pS[I].ConReg.halt_request != 1){	
+	  if(pS[I].ConReg.halt_request != 1){
 	    logmsgf(LT_LAMBDA,10,"TREG %d: HALT REQ SET\n",I);
 	    pS[I].ConReg.halt_request = 1;
 	  }
@@ -3244,13 +3700,13 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	    logmsgf(LT_LAMBDA,10,"TREG %d: HALT REQ CLEARED\n",I);
 	    pS[I].ConReg.halt_request = 0;
 	  }
-	}	
+	}
 	// Save present uPC
 	pS[I].loc_ctr_cnt = pS[I].loc_ctr_reg.raw;
 	// TRIGGER DEST WRITES / JUMPS
 	if(pS[I].ConReg.nop == 0){
 	  switch(pS[I].Iregister.Opcode){
-	  case 0: // ALU-OP		      
+	  case 0: // ALU-OP
 	    // Handle destination selector
 	    handle_destination(I);
 	    // Process Q register
@@ -3267,7 +3723,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	    /* Handle RPN.
 	       CODES ARE:
 	       R P N  (RETURN, PUSH, INHIBIT)
-			 
+
 	       0 0 0 = Branch-Xct-Next
 	       0 0 1 = Branch
 	       0 1 0 = Call-Xct-Next
@@ -3277,7 +3733,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	       1 1 0 = NOP (JUMP2-XCT-NEXT) (UNDEFINED ON LAMBDA)
 	       1 1 1 = SKIP (JUMP2) (UNDEFINED ON LAMBDA)
 	    */
-		      
+
 	    if(pS[I].test_true){
 	      pS[I].wrote_uPC = true; // We are writing the uPC, so don't advance it.
 	      // If we have a pending POPJ-AFTER-NEXT, cancel it
@@ -3295,16 +3751,16 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		}
 		pS[I].loc_ctr_nxt = pS[I].Iregister.Jump.Address;
 		break;
-			  
+
 	      case 1: // Jump-Branch
 		if(pS[I].microtrace && pS[I].loc_ctr_reg.raw != (pS[I].loc_ctr_cnt + 1)){
 		  logmsgf(LT_LAMBDA,10,"JUMP: Pending JUMP collision investigation marker\n");
 		  // pS[I].cpu_die_rq = 1;
-		}	
+		}
 		pS[I].loc_ctr_reg.raw = pS[I].Iregister.Jump.Address;
 		pS[I].NOP_Next = 1;
 		break;
-			  
+
 	      case 2: // Jump-Call-Xct-Next
 		// Call, but DO NOT inhibit the next instruction!
 		pS[I].uPCS_ptr_reg++; pS[I].uPCS_ptr_reg &= 0xFF;
@@ -3313,9 +3769,9 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		  char *location;
 		  char symloc[100];
 		  int offset;
-			    
+
 		  logmsgf(LT_LAMBDA,10,"uStack[%o] = ",pS[I].uPCS_ptr_reg);
-			    
+
 		  location = "";
 		  offset = 0;
 		  location = sym_find_last(1, pS[I].uPCS_stack[pS[I].uPCS_ptr_reg], &offset);
@@ -3337,7 +3793,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		  pS[I].popj_after_nxt = -1;
 		}
 		break;
-			    
+
 	      case 3: // Jump-Call
 		// PUSH ADDRESS
 		pS[I].uPCS_ptr_reg++;  pS[I].uPCS_ptr_reg &= 0xFF;
@@ -3346,9 +3802,9 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		  char *location;
 		  char symloc[100];
 		  int offset;
-			    
+
 		  logmsgf(LT_LAMBDA,10,"uStack[%o] = ",pS[I].uPCS_ptr_reg);
-			    
+
 		  location = "";
 		  offset = 0;
 		  location = sym_find_last(1, pS[I].uPCS_stack[pS[I].uPCS_ptr_reg], &offset);
@@ -3372,7 +3828,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		  pS[I].popj_after_nxt = -1;
 		}
 		break;
-			  
+
 	      case 4: // Jump-Return-XCT-Next
 		if(pS[I].popj_after_nxt != -1){
 		  // PJAN is armed. Do not double!
@@ -3383,7 +3839,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		pS[I].loc_ctr_nxt = pS[I].uPCS_stack[pS[I].uPCS_ptr_reg]&0xFFFFF;
 		pS[I].uPCS_ptr_reg--;  pS[I].uPCS_ptr_reg &= 0xFF;
 		break;
-			  
+
 	      case 5: // Jump-Return
 		if(pS[I].popj_after_nxt != -1){
 		  // PJAN is armed. Do not double!
@@ -3397,7 +3853,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		pS[I].uPCS_ptr_reg--;  pS[I].uPCS_ptr_reg &= 0xFF;
 		pS[I].NOP_Next = 1;
 		break;
-			  
+
 	      default:
 		logmsgf(LT_LAMBDA,0,"Unknown jump RPN %o\n",pS[I].Iregister.Jump.RPN);
 		pS[I].cpu_die_rq=1;
@@ -3412,7 +3868,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		char *location;
 		char symloc[100];
 		int offset;
-		
+
 		logmsgf(LT_LAMBDA,10,"DISPATCH: OP %s DEST ",jump_op_str[pS[I].disp_word.Operation]);
 		location = "";
 		offset = 0;
@@ -3443,7 +3899,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		  if(pS[I].RG_Mode.Main_Stat_Count_Control == 01){
 		    pS[I].stat_counter_main++;
 		  }
-		  nubus_io_request(VM_READ,pS[I].NUbus_ID,pS[I].vm_phys_addr.raw,0);
+		  lcbus_io_request(VM_READ,I,pS[I].vm_phys_addr.raw,0);
 		}
 	      }
 	      // Handle operation
@@ -3456,7 +3912,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		}
 		pS[I].loc_ctr_nxt = pS[I].disp_word.PC;
 		break;
-		
+
 	      case 1: // Jump-Branch
 		if(pS[I].loc_ctr_reg.raw != (pS[I].loc_ctr_cnt + 1)){
 		  logmsgf(LT_LAMBDA,0,"DISPATCH: Pending JUMP collision investigation stop\n");
@@ -3465,7 +3921,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		pS[I].loc_ctr_reg.raw = pS[I].disp_word.PC;
 		pS[I].NOP_Next = 1;
 		break;
-		
+
 	      case 2: // Jump-Call-Xct-Next
 		// Call, but DO NOT inhibit the next instruction!
 		if(pS[I].popj_after_nxt != -1){
@@ -3478,14 +3934,14 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		  logmsgf(LT_LAMBDA,0,"DISPATCH: LPC set w/ call-xct-next?\n");
 		  pS[I].cpu_die_rq = 1;
 		}
-		pS[I].uPCS_stack[pS[I].uPCS_ptr_reg] = pS[I].loc_ctr_reg.raw+1; // Pushes the address of the next instruction	
+		pS[I].uPCS_stack[pS[I].uPCS_ptr_reg] = pS[I].loc_ctr_reg.raw+1; // Pushes the address of the next instruction
 		if(pS[I].microtrace){
 		  char *location;
 		  char symloc[100];
 		  int offset;
-		  
+
 		  logmsgf(LT_LAMBDA,10,"uStack[%o] = ",pS[I].uPCS_ptr_reg);
-		  
+
 		  location = "";
 		  offset = 0;
 		  location = sym_find_last(1, pS[I].uPCS_stack[pS[I].uPCS_ptr_reg], &offset);
@@ -3507,7 +3963,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		  pS[I].popj_after_nxt = -1;
 		}
 		break;
-		
+
 	      case 3: // Jump-Call
 		// PUSH ADDRESS
 		if(pS[I].popj_after_nxt != -1){
@@ -3525,9 +3981,9 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		  char *location;
 		  char symloc[100];
 		  int offset;
-		  
+
 		  logmsgf(LT_LAMBDA,10,"uStack[%o] = ",pS[I].uPCS_ptr_reg);
-		  
+
 		  location = "";
 		  offset = 0;
 		  location = sym_find_last(1, pS[I].uPCS_stack[pS[I].uPCS_ptr_reg], &offset);
@@ -3536,7 +3992,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		      sprintf(symloc, "%s+%o", location, offset);
 		    }else{
 		      sprintf(symloc, "%s", location);
-		    }	  
+		    }
 		    logmsgf(LT_LAMBDA,10,"%s",symloc);
 		  }
 		  logmsgf(LT_LAMBDA,10," (%o)\n",pS[I].uPCS_stack[pS[I].uPCS_ptr_reg]);
@@ -3551,13 +4007,13 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		  pS[I].popj_after_nxt = -1;
 		}
 		break;
-		
+
 	      case 4: // Jump-Return-XCT-Next
 		// POP ADDRESS
 		pS[I].loc_ctr_nxt = pS[I].uPCS_stack[pS[I].uPCS_ptr_reg]&0xFFFFF;
 		pS[I].uPCS_ptr_reg--;  pS[I].uPCS_ptr_reg &= 0xFF;
 		break;
-		
+
 		// Used in d-swap-quantum-map-dispatch, should return
 	      case 5: // Jump-Return
 		// POP ADDRESS
@@ -3565,7 +4021,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		pS[I].uPCS_ptr_reg--;  pS[I].uPCS_ptr_reg &= 0xFF;
 		pS[I].NOP_Next = 1;
 		break;
-		
+
 	      case 6: // Undefined-NOP
 		/*
 		// PUSH ADDRESS
@@ -3576,13 +4032,13 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 		pS[I].uPCS_ptr_reg--;  pS[I].uPCS_ptr_reg &= 0xFF;
 		*/
 		break;
-		
+
 	      case 7: // Undefined-NOP (Raven SKIP)
 		pS[I].loc_ctr_reg.raw++;
 		pS[I].NOP_Next = 1;
 		break;
-		
-		
+
+
 	      default:
 		logmsgf(LT_LAMBDA,0,"Unknown dispatch RPN %o\n",pS[I].disp_word.Operation);
 		pS[I].cpu_die_rq=1;
@@ -3592,7 +4048,7 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	  }
 	}
 	// pS[I].loc_ctr_reg.raw = pS[I].loc_ctr_cnt + 1; // Otherwise get next instruction
-	logmsgf(LT_LAMBDA,10,"TREG %d: uPC: CNT %.4o REG %.4o NXT %.o\n",I,pS[I].loc_ctr_cnt,pS[I].loc_ctr_reg.raw,pS[I].loc_ctr_nxt); 
+	logmsgf(LT_LAMBDA,10,"TREG %d: uPC: CNT %.4o REG %.4o NXT %.o\n",I,pS[I].loc_ctr_cnt,pS[I].loc_ctr_reg.raw,pS[I].loc_ctr_nxt);
       }
       // Fool the CSMRAM data path test
       if(pS[I].CSM_Adr.Addr == 0xfff){
@@ -3608,42 +4064,172 @@ void sm_clock_pulse(int I,int clock,Processor_Mode_Reg *oldPMR){
 	logmsgf(LT_LAMBDA,10,"TREG %d: M = 0x%.8X A = 0x%.8X\n",I,pS[I].Mbus,pS[I].Abus);
       }
     }else{
-      logmsgf(LT_LAMBDA,10,"RG %d: PMR: SM CLOCK HI: TRAM_PC 0%o\n",I,pS[I].TRAM_PC);		
+      logmsgf(LT_LAMBDA,10,"RG %d: PMR: SM CLOCK HI: TRAM_PC 0%o\n",I,pS[I].TRAM_PC);
     }
+  }
+}
+
+// Nubus Slave Operation
+void lambda_nubus_pulse(int I){
+  if(NUbus_Busy == 2 && NUbus_acknowledge == 0 && NUbus_Address.Card == pS[I].NUbus_ID){
+    lambda_nubus_slave(I);
   }
 }
 
 // Normal Clock Pulse
 void lambda_clockpulse(int I){
-  pS[I].cycle_count++;
   // Run one clock
+  // Keep time
+  pS[I].cycle_count++;
+  if(pS[I].cycle_count == 5){
+    if(pS[I].RG_Mode.Aux_Stat_Count_Control == 6){
+      pS[I].stat_counter_aux++;
+    }
+    pS[I].cycle_count = 0;
+  }
 
-  // NUbus interface operation
-  if(NUbus_master == pS[I].NUbus_ID && NUbus_Busy > 0){
-    if((NUbus_Request&0x01)==0){
+  // Bus interface operation
+  if(pS[I].LCbus_Busy > 0){
+    if(pS[I].NUbus_Master == 1){
+      // We are the master. Drive the bus.
+      nubus_clock_pulse();
+      // Pull the nubus clock signals back to the LC bus.
+      pS[I].LCbus_error = NUbus_error;
+      pS[I].LCbus_Busy = NUbus_Busy;
+      pS[I].LCbus_acknowledge = NUbus_acknowledge;
+      pS[I].LCbus_Address = NUbus_Address;
+      pS[I].LCbus_Data = NUbus_Data;
+      pS[I].LCbus_Request = NUbus_Request;
+      if((pS[I].LCbus_Address.raw&0x03) == 0x2){
+	pS[I].LCbus_Block[0] = NUbus_Block[0];
+	pS[I].LCbus_Block[1] = NUbus_Block[1];
+	pS[I].LCbus_Block[2] = NUbus_Block[2];
+	pS[I].LCbus_Block[3] = NUbus_Block[3];
+      }
+    }else{
+      // We are not the bus master. This must be a cache hit!
+      // First, put data on the bus...
+      uint8_t Sector_Offset = (pS[I].LCbus_Address.raw&0xC)>>2;
+      switch(pS[I].LCbus_Request){
+      case VM_READ:
+	// WORD READ
+	switch(pS[I].LCbus_Address.raw&0x3){
+	case 0:
+	  // FULL WORD
+	  /*
+	  logmsgf(LT_LAMBDA,2,"CACHE: READ-WORD-HIT: Returned 0x%.8X\n",
+	  pS[I].Cache_Data[pS[I].Cache_Sector][Sector_Offset].word); */
+	  pS[I].LCbus_Data.word = pS[I].Cache_Data[pS[I].Cache_Sector][Sector_Offset].word;
+	  break;
+	case 1: // LOW HALF
+	case 3: // HI HALF
+	case 2: // BLOCK (illegal)
+	default:
+	  logmsgf(LT_LAMBDA,0,"CACHE: WORD READ - UI MODE %o\n",pS[I].LCbus_Address.raw&0x3);
+	  exit(-1);
+	}
+	break;
+      case VM_BYTE_READ:
+	// Byte read
+      default:
+	logmsgf(LT_LAMBDA,0,"CACHE: HIT: UI OP %o\n",pS[I].LCbus_Request);
+	exit(-1);
+      }
+      // Drive ack
+      pS[I].LCbus_acknowledge = 1;
+      pS[I].LCbus_error = 0; // Just in case
+      // Count down busy
+      pS[I].LCbus_Busy--;
+      // logmsgf(LT_LAMBDA,2,"LCBUS: BUSY %d\n",pS[I].LCbus_Busy);
+    }
+    // Is this a read?
+    if((pS[I].LCbus_Request&0x01)==0){
       // Since this is our read request, reload MD here.
       // Since Lambda doesn't handle timeouts, I guess this happens regardless of acknowledge?
-      pS[I].MDregister.raw = NUbus_Data.word;
+      pS[I].MDregister.raw = pS[I].LCbus_Data.word;
+      // Also update the cache if this is a read through and the read ack'd
+      if(pS[I].NUbus_Master == 1 && pS[I].Cache_Permit != 0 && pS[I].Cache_Sector_Hit == 1 && pS[I].LCbus_acknowledge == 1){
+	uint8_t Sector_Offset = (pS[I].LCbus_Address.raw&0xF)>>2;
+	switch(pS[I].LCbus_Request){
+	case VM_READ:
+	  // Word read
+	  switch(pS[I].LCbus_Address.raw&0x03){
+	  case 0:
+	    // FULL WORD
+	    pS[I].Cache_Data[pS[I].Cache_Sector][Sector_Offset].word = pS[I].LCbus_Data.word;
+	    pS[I].Cache_Status[pS[I].Cache_Sector][Sector_Offset] = 0x0F;
+	    // logmsgf(LT_LAMBDA,2,"CACHE: READ-THROUGH-FILL: WORD: Filled with 0x%.8X\n",pS[I].LCbus_Data.word);
+	    break;
+	  case 1:
+	    // LOW HALF
+	  case 3:
+	    // HI HALF
+	  case 2:
+	    // BLOCK
+	    pS[I].Cache_Data[pS[I].Cache_Sector][0].word = pS[I].LCbus_Block[0].word;
+	    pS[I].Cache_Status[pS[I].Cache_Sector][0] = 0x0F;
+	    pS[I].Cache_Data[pS[I].Cache_Sector][1].word = pS[I].LCbus_Block[1].word;
+	    pS[I].Cache_Status[pS[I].Cache_Sector][1] = 0x0F;
+	    pS[I].Cache_Data[pS[I].Cache_Sector][2].word = pS[I].LCbus_Block[2].word;
+	    pS[I].Cache_Status[pS[I].Cache_Sector][2] = 0x0F;
+	    pS[I].Cache_Data[pS[I].Cache_Sector][3].word = pS[I].LCbus_Block[3].word;
+	    pS[I].Cache_Status[pS[I].Cache_Sector][3] = 0x0F;
+	    /*
+	    logmsgf(LT_LAMBDA,2,"CACHE: READ-THROUGH-FILL: BLOCK: Sector filled with 0x%.8X 0x%.8X 0x%.8X 0x%.8X\n",
+		    pS[I].Cache_Data[pS[I].Cache_Sector][0].word,
+		    pS[I].Cache_Data[pS[I].Cache_Sector][1].word,
+		    pS[I].Cache_Data[pS[I].Cache_Sector][2].word,
+		    pS[I].Cache_Data[pS[I].Cache_Sector][3].word);
+	    */
+	    break;
+	  default:
+	    logmsgf(LT_LAMBDA,0,"CACHE: READ-THROUGH-FILL: UI MODE %o\n",pS[I].LCbus_Address.raw&0x3);
+	    exit(-1);
+	  }
+	  break;
+	case VM_BYTE_READ:
+	  // Byte read
+	default:
+	  logmsgf(LT_LAMBDA,0,"CACHE: READ-THROUGH-FILL: UI OP %o\n",pS[I].LCbus_Request);
+	  exit(-1);
+	}
+      }
     }
     // Was it acknowledged?
-    if(NUbus_acknowledge == 1){
+    if(pS[I].LCbus_acknowledge == 1){
+      /*
       if(NUbus_trace == 1){
 	logmsgf(LT_NUBUS,10,"NUBUS: Cycle Complete: Request %o Addr 0x%X (0%o) w/ data 0x%X (0%o) Ack %o\n",
 	       NUbus_Request,NUbus_Address.raw,NUbus_Address.raw,NUbus_Data.word,NUbus_Data.word,NUbus_acknowledge);
       }
-      // We can release the bus
-      NUbus_Busy = 0;
+      */
+      // Release the bus
+      pS[I].LCbus_Busy = 0;
+      // Also release the NUbus if we have it.
+      if(pS[I].NUbus_Master == 1){
+	pS[I].NUbus_Master = 0;
+	release_nubus_mastership();
+      }
+    }else{
+      // If the request timed out and we have the nubus, release it.
+      if(pS[I].LCbus_Busy == 0 && pS[I].NUbus_Master == 1){
+	pS[I].NUbus_Master = 0;
+	release_nubus_mastership();
+      }
     }
   }
+
   // NUbus slave operation (RG board's interface)
   // Under some conditions the Lambda will talk to itself
+  /*
   if(NUbus_Busy == 2 && NUbus_acknowledge == 0 && NUbus_Address.Card == pS[I].NUbus_ID){
     lambda_nubus_slave(I);
   }
+  */
 
   // If we are halted, we are done here.
   if(pS[I].cpu_die_rq != 0){
-    return; 
+    return;
   }else{
     /*
     if(pS[I].PMR.Allow_UInst_Clocks != 0 && pS[I].ConReg.uinst_clock_l != 0){
@@ -3672,11 +4258,11 @@ void lambda_clockpulse(int I){
 	if(pS[I].microtrace){
 	  logmsgf(LT_LAMBDA,10,"PJAN FIRED: GOING TO %o\n",pS[I].loc_ctr_reg.raw);
 	}
-	// pS[I].cpu_die_rq = 1; 
+	// pS[I].cpu_die_rq = 1;
       }
       pS[I].popj_after_nxt--;
     }
-    
+
     if(pS[I].slow_dest == true){
       // Slow destination. Waste a cycle.
       pS[I].stall_count++;
@@ -3685,7 +4271,7 @@ void lambda_clockpulse(int I){
 	logmsgf(LT_LAMBDA,10,"SLOW-DEST cycle used\n");
       }
       return;
-    } 
+    }
 
     if(pS[I].long_inst == true){
       // Long instruction. Waste a cycle.
@@ -3695,7 +4281,7 @@ void lambda_clockpulse(int I){
 	logmsgf(LT_LAMBDA,10,"LONG-INST cycle used\n");
       }
       return;
-    } 
+    }
 
     if(pS[I].NOP_Next == true){
       // Inhibit bit set. Waste a cycle.
@@ -3782,7 +4368,7 @@ void lambda_clockpulse(int I){
 	  }
 	  pS[I].loc_ctr_nxt = disp_word.PC;
 	  break;
-	  
+
 	case 1: // Jump-Branch
 	  if(pS[I].loc_ctr_reg.raw != (pS[I].loc_ctr_cnt + 1)){
 	    logmsgf(LT_LAMBDA,0,"MACRO DISPATCH: Pending JUMP collision investigation stop\n");
@@ -3791,7 +4377,7 @@ void lambda_clockpulse(int I){
 	  pS[I].loc_ctr_reg.raw = disp_word.PC;
 	  pS[I].NOP_Next = 1;
 	  break;
-	  
+
 	case 2: // Jump-Call-Xct-Next
 	  // Call, but DO NOT inhibit the next instruction!
 	  pS[I].uPCS_ptr_reg++; pS[I].uPCS_ptr_reg &= 0xFF;
@@ -3820,7 +4406,7 @@ void lambda_clockpulse(int I){
 	  }
 	  pS[I].loc_ctr_nxt = disp_word.PC;
 	  break;
-	  
+
 	case 3: // Jump-Call
 	  // PUSH ADDRESS
 	  pS[I].uPCS_ptr_reg++;  pS[I].uPCS_ptr_reg &= 0xFF;
@@ -3850,7 +4436,7 @@ void lambda_clockpulse(int I){
 	  pS[I].loc_ctr_reg.raw = disp_word.PC;
 	  pS[I].NOP_Next = 1;
 	  break;
-	  
+
 	case 6: // Undefined-NOP
 	  /*
 	  // PUSH ADDRESS
@@ -3868,7 +4454,7 @@ void lambda_clockpulse(int I){
 	     pS[I].loc_ctr_nxt = pS[I].uPCS_stack[pS[I].uPCS_ptr_reg]&0xFFFFF;
 	     pS[I].uPCS_ptr_reg--;  pS[I].uPCS_ptr_reg &= 0xFF;
 	     break;
-	     
+
 	     case 5: // Jump-Return
 	     // POP ADDRESS
 	     pS[I].loc_ctr_reg.raw = pS[I].uPCS_stack[pS[I].uPCS_ptr_reg]&0xFFFFF;
@@ -3876,7 +4462,7 @@ void lambda_clockpulse(int I){
 	     pS[I].NOP_Next = 1;
 	     break;
 	  */
-	  
+
 	default:
 	  logmsgf(LT_LAMBDA,0,"Unknown macro-dispatch RPN %o\n",disp_word.Operation);
 	  pS[I].cpu_die_rq=1;
@@ -3892,7 +4478,7 @@ void lambda_clockpulse(int I){
 
     // Update PC.
     pS[I].loc_ctr_cnt = pS[I].loc_ctr_reg.raw; // Prepare to fetch next.
-    
+
     // If AfterNEXT
     if(pS[I].loc_ctr_nxt != -1){
       pS[I].loc_ctr_reg.raw = pS[I].loc_ctr_nxt; // Load next instruction
@@ -3901,17 +4487,17 @@ void lambda_clockpulse(int I){
       pS[I].loc_ctr_reg.raw = pS[I].loc_ctr_cnt + 1; // Otherwise get next instruction
     }
     pS[I].last_loc_ctr = pS[I].loc_ctr_reg.raw;    // Save This
-    
+
     // TRAP PC GENERATOR
     // Lambda does not have traps!
 
     // History maintenance
     pS[I].History_RAM[pS[I].History_Pointer&0xFFF] = pS[I].loc_ctr_cnt;
-    pS[I].History_Pointer++; 
+    pS[I].History_Pointer++;
     if(pS[I].History_Pointer > 0xFFF){ pS[I].History_Pointer = 0; }
 
     // Clobber conreg bits
-    pS[I].ConReg.halt_request = 0;    
+    pS[I].ConReg.halt_request = 0;
     pS[I].ConReg.any_parity_error_synced_l = 1;
 
     // FETCH
@@ -3937,7 +4523,7 @@ void lambda_clockpulse(int I){
       pS[I].imod_en = 0;
       pS[I].imod_hi = 0;
       pS[I].imod_lo = 0;
-    }  
+    }
 
     // Handle STAT bit
     if(pS[I].RG_Mode.Aux_Stat_Count_Control == 0 && pS[I].Iregister.Stat_Bit != 0){
@@ -3946,7 +4532,7 @@ void lambda_clockpulse(int I){
     if(pS[I].RG_Mode.Main_Stat_Count_Control == 0 && pS[I].Iregister.Stat_Bit != 0){
       pS[I].stat_counter_main++;
     }
-    
+
     // Handle HALT bit
     if((pS[I].Iregister.Halt)){
       logmsgf(LT_LAMBDA,1,"**MInst-HALT** #%d\n",I);
@@ -3965,7 +4551,7 @@ void lambda_clockpulse(int I){
     if(pS[I].RG_Mode.Main_Stat_Count_Control == 04){
       pS[I].stat_counter_main++;
     }
-    pS[I].ConReg.t_hold_l = 0;    
+    pS[I].ConReg.t_hold_l = 0;
   }
 
   // Handle global fields
@@ -3974,18 +4560,35 @@ void lambda_clockpulse(int I){
     // Seems to be lit whenever Raven would do a stall for IO completion.
     // Maybe that's what we're supposed to do with it?
     // For timing purposes we do this by holding execution.
-    if(NUbus_Busy > 0){
+    // Is this ever lit when we aren't the bus master?
+    // *** YES ***
+    // THIS GETS LIT IF WE ARE WAITING FOR THE -RESULT- OF A BUS OPERATION, NOT INITIATING IT!
+    // IN THE NORMAL PATH OF THINGS, IT LOOKS LIKE NUBUS MASTERSHIP IS NEVER REALLY OBTAINED!
+
+#ifdef NEVER
+    if(pS[I].LCbus_Busy > 0){
       if(pS[I].microtrace != 0){
-	logmsgf(LT_LAMBDA,10,"LAMBDA: CMSB: Awaiting bus...\n");
+	logmsgf(LT_LAMBDA,10,"LAMBDA: CMSB: Awaiting completion\n");
       }
+      // If we aren't the master, consider taking it?
+      /*
+      if(NUbus_master != pS[I].NUbus_ID){
+	// Do it
+	logmsgf(LT_LAMBDA,10,"TAKING NUBUS MASTERSHIP...\n");
+	take_nubus_mastership(); // THIS BREAKS THE SDU, BUT CAUSE A BUS CLASH TO SHOW ITSELF
+	logmsgf(LT_LAMBDA,10,"HAVE NUBUS MASTERSHIP...\n");
+      }
+      */
       pS[I].stall_count++; // Track ticks burned
       pS[I].exec_hold = true;
       return;
     }
+#endif
   }
-  // MD source stall handling
-  if(pS[I].Iregister.MSource == 0161 && NUbus_Busy > 0 && NUbus_master == pS[I].NUbus_ID &&
-     !(NUbus_acknowledge != 0 || NUbus_error != 0)){
+  // MD source stall handling.
+  // If reading MD, we are the bus master, and the request is outstanding, stall.
+  if(pS[I].Iregister.MSource == 0161 && pS[I].LCbus_Busy > 0 && // NUbus_master == pS[I].NUbus_ID &&
+     !(pS[I].LCbus_acknowledge != 0 || pS[I].LCbus_error != 0)){
     if(pS[I].microtrace != 0){
       logmsgf(LT_LAMBDA,10,"LAMBDA: M-SRC-MD: Awaiting cycle completion...\n");
     }
@@ -4001,7 +4604,6 @@ void lambda_clockpulse(int I){
 	     pS[I].NOP_Next,pS[I].loc_ctr_reg.raw,pS[I].loc_ctr_nxt);
     }
 
-#ifdef ISTREAM
     if(((pS[I].LCregister.raw>>1)&0x01) == 0x0){
       pS[I].RG_Mode.Need_Macro_Inst_Fetch = 1;
       if(pS[I].microtrace != 0){
@@ -4010,7 +4612,7 @@ void lambda_clockpulse(int I){
     }else{
       // Clobber pagefault anyway?
       if(pS[I].Page_Fault != 0){
-	pS[I].Page_Fault = 0; 
+	pS[I].Page_Fault = 0;
       }
     }
 
@@ -4020,8 +4622,9 @@ void lambda_clockpulse(int I){
       if(pS[I].microtrace != 0){
 	logmsgf(LT_LAMBDA,10,"NEED-FETCH IS LIT\n");
       }
-#endif
-      // We will need the memory bus. Can we have it?
+      // We will need the memory bus. Take it.
+      // maybe_take_nubus_mastership(I);
+      /*
       if(NUbus_Busy > 0 && pS[I].ConReg.Enable_NU_Master == 1){
 	if(pS[I].microtrace != 0){
 	  logmsgf(LT_LAMBDA,10,"AWAITING MEMORY BUS...\n");
@@ -4031,6 +4634,7 @@ void lambda_clockpulse(int I){
 	pS[I].exec_hold = true;
 	return;
       }
+      */
       // We can has bus
       pS[I].VMAregister.raw = (pS[I].LCregister.raw >> 2) & 0x1ffffff;
       VM_resolve_address(I,VM_READ,0);
@@ -4041,9 +4645,8 @@ void lambda_clockpulse(int I){
 	if(pS[I].RG_Mode.Main_Stat_Count_Control == 01){
 	  pS[I].stat_counter_main++;
 	}
-	nubus_io_request(VM_READ,pS[I].NUbus_ID,pS[I].vm_phys_addr.raw,0);
+	lcbus_io_request(VM_READ,I,pS[I].vm_phys_addr.raw,0);
       }
-#ifdef ISTREAM
       // Clear needfetch
       pS[I].RG_Mode.Need_Macro_Inst_Fetch = 0;
       pS[I].mirInvalid = 1;
@@ -4052,10 +4655,6 @@ void lambda_clockpulse(int I){
 	logmsgf(LT_LAMBDA,10,"NO NEED FOR FETCHING\n");
       }
     }
-#else
-    // Clear needfetch
-    pS[I].RG_Mode.Need_Macro_Inst_Fetch = 0;
-#endif
     // Advance LC
     pS[I].LCregister.raw += 2;
     if(pS[I].RG_Mode.Aux_Stat_Count_Control == 03){
@@ -4075,17 +4674,17 @@ void lambda_clockpulse(int I){
     // pS[I].cpu_die_rq = 1;
   }
   // Handle Macro-Stream-Advance
-  if(pS[I].Iregister.Macro_Stream_Advance != 0){     
+  if(pS[I].Iregister.Macro_Stream_Advance != 0){
     // Is this the expected scenario?
     if(!(pS[I].Iregister.Opcode == 3 && pS[I].Iregister.MSource == 0107 && pS[I].Iregister.Dispatch.Pos == 020)){ // && pS[I].RG_Mode.Need_Macro_Inst_Fetch != 1)){
       logmsgf(LT_LAMBDA,0,"USE OF MACRO-STREAM-ADVANCE DOES NOT FIT EXPECTED SCENARIO - INVESTIGATE!\n");
       pS[I].cpu_die_rq = 1;
     }
-#ifdef ISTREAM
     // Will we need the bus?
     if(((pS[I].LCregister.raw>>1)&0x01) == 0x0){
-      // We will need the memory bus. Can we have it?
-#endif
+      // We will need the memory bus. Take it.
+      // maybe_take_nubus_mastership(I);
+      /*
       if(NUbus_Busy > 0 && pS[I].ConReg.Enable_NU_Master == 1){
 	if(pS[I].microtrace){
 	  logmsgf(LT_LAMBDA,10,"MACRO-STREAM-ADVANCE: AWAITING MEMORY BUS...\n");
@@ -4095,7 +4694,7 @@ void lambda_clockpulse(int I){
 	pS[I].exec_hold = true;
 	return;
       }
-#ifdef ISTREAM
+      */
     }else{
       // This MSA will not cause a fetch. Is it acceptable to clobber VMA and read anyway?
       // We should check.
@@ -4104,7 +4703,6 @@ void lambda_clockpulse(int I){
     }
 
     if(((pS[I].LCregister.raw>>1)&0x01) == 0x0){
-#endif
       if(pS[I].microtrace){
 	logmsgf(LT_LAMBDA,10,"MACRO-STREAM-ADVANCE: INITIATING MEMORY READ...\n");
       }
@@ -4117,11 +4715,9 @@ void lambda_clockpulse(int I){
 	if(pS[I].RG_Mode.Main_Stat_Count_Control == 01){
 	  pS[I].stat_counter_main++;
 	}
-	nubus_io_request(pS[I].vm_byte_mode|VM_READ,pS[I].NUbus_ID,pS[I].vm_phys_addr.raw,0);
-      }   
-#ifdef ISTREAM
+	lcbus_io_request(pS[I].vm_byte_mode|VM_READ,I,pS[I].vm_phys_addr.raw,0);
+      }
     }
-#endif
     // Advance LC, then load VMA from LC and initiate a read.
     pS[I].LCregister.raw += 2; // Yes, this is right
     if(pS[I].RG_Mode.Aux_Stat_Count_Control == 03){
@@ -4146,7 +4742,7 @@ void lambda_clockpulse(int I){
   if(pS[I].Iregister.Stat_Bit != 0){ logmsgf(LT_LAMBDA,0,"\nSTAT\n"); pS[I].cpu_die_rq = 1; }
   // if(pS[I].Iregister.ILong != 0){ logmsgf(LT_LAMBDA,10,"\nILong\n"); pS[I].cpu_die_rq = 1; }
   // if(pS[I].Iregister.Macro_IR_Disp != 0){ logmsgf(LT_LAMBDA,10,"\nMIR-DISP\n"); pS[I].cpu_die_rq = 1; }
-  if(pS[I].Iregister.PopJ_After_Next != 0){ 
+  if(pS[I].Iregister.PopJ_After_Next != 0){
     // If we are using SLOW-DEST we add another instruction
     if(pS[I].Iregister.Slow_Dest != 0){
       pS[I].popj_after_nxt = 2;
@@ -4162,18 +4758,15 @@ void lambda_clockpulse(int I){
   if(pS[I].Iregister.ILong != 0){ pS[I].long_inst = true; } // Burn the next cycle
   // Fetch sources
   handle_source(I,0);
-  
+
   // Source-To-Macro-IR.
   // Load the Macro IR from the pS[I].Mbus
-  if(pS[I].Iregister.Src_to_Macro_IR != 0){ 
-#ifdef ISTREAM
+  if(pS[I].Iregister.Src_to_Macro_IR != 0){
     if(((pS[I].LCregister.raw>>1)&0x01) == 0x01){
-#endif
       if(pS[I].microtrace){
 	logmsgf(LT_LAMBDA,10,"S2MIR: Loaded MIR\n");
       }
       pS[I].MIregister.raw = pS[I].Mbus;
-#ifdef ISTREAM
       pS[I].mirInvalid = 0;
     }else{
       if(pS[I].microtrace){
@@ -4192,13 +4785,12 @@ void lambda_clockpulse(int I){
 	}
       }
     }
-#endif
   }
 
   // MIR-DISP
   if(pS[I].Iregister.Macro_IR_Disp != 0){
     if(pS[I].microtrace){
-      logmsgf(LT_LAMBDA,10,"MIR-DISP: Flag Set\n"); 
+      logmsgf(LT_LAMBDA,10,"MIR-DISP: Flag Set\n");
     }
     pS[I].macro_dispatch_inst = 1; // Next instruction will be a macro dispatch
   }
@@ -4219,7 +4811,7 @@ void lambda_clockpulse(int I){
 
     // Halt if spare bit set
     if(pS[I].Iregister.ALU.Spare > 0){ logmsgf(LT_LAMBDA,0,"ALU-SPARE "); pS[I].cpu_die_rq = 1; }
-    
+
     // Process Q register
     handle_q_register(I);
 
@@ -4239,7 +4831,7 @@ void lambda_clockpulse(int I){
     if(pS[I].Iregister.Byte.Spare > 0){ logmsgf(LT_LAMBDA,0,"BYTE-SPARE "); pS[I].cpu_die_rq = 1; }
     break;
 
-  case 2: // JUMP-OP    
+  case 2: // JUMP-OP
     if(pS[I].Iregister.Jump.LC_Increment != 0){ logmsgf(LT_LAMBDA,0," LCINC"); pS[I].cpu_die_rq = 1; }
     if(pS[I].Iregister.Jump.Spare != 0){ logmsgf(LT_LAMBDA,0," JUMP-SPARE"); pS[I].cpu_die_rq = 1; }
     if(pS[I].Iregister.Jump.Spare2 != 0){ logmsgf(LT_LAMBDA,0," JUMP-SPARE2"); pS[I].cpu_die_rq = 1; }
@@ -4251,7 +4843,7 @@ void lambda_clockpulse(int I){
       alu_sub_stub(I,0); // Do M-A
       alu_cleanup_result(I);
 
-      // Perform test      
+      // Perform test
       switch(pS[I].Iregister.Jump.Cond){
 
       case 01: // LAM-JUMP-COND-M<A
@@ -4376,12 +4968,12 @@ void lambda_clockpulse(int I){
 	}
         pS[I].loc_ctr_nxt = pS[I].Iregister.Jump.Address;
         break;
-	
+
       case 1: // Jump-Branch
 	if(pS[I].microtrace && pS[I].loc_ctr_reg.raw != (pS[I].loc_ctr_cnt + 1)){
 	  logmsgf(LT_LAMBDA,10,"JUMP: Pending JUMP collision investigation marker\n");
 	  // pS[I].cpu_die_rq = 1;
-	}	
+	}
         pS[I].loc_ctr_reg.raw = pS[I].Iregister.Jump.Address;
         pS[I].NOP_Next = 1;
         break;
@@ -4507,12 +5099,12 @@ void lambda_clockpulse(int I){
 
       // Load VMA from M source
       if(pS[I].Iregister.Dispatch.Write_VMA != 0){ pS[I].VMAregister.raw = pS[I].Mbus; }
-      
+
       // Lambda doesn't have dispatch-source, so I assume it's always R-bus
-      Mask = (1 << pS[I].Iregister.Dispatch.Len) - 1;      
+      Mask = (1 << pS[I].Iregister.Dispatch.Len) - 1;
       // Meta handling
       if(pS[I].Iregister.Dispatch.Enable_GC_Volatility_Meta || pS[I].Iregister.Dispatch.Enable_Oldspace_Meta){
-	Mask = Mask & 0xfffffffe;	
+	Mask = Mask & 0xfffffffe;
       }
       // Investigation stop
       if(pS[I].Iregister.Dispatch.Enable_GC_Volatility_Meta && pS[I].Iregister.Dispatch.Enable_Oldspace_Meta){
@@ -4550,7 +5142,7 @@ void lambda_clockpulse(int I){
 	// GCV FLAG is (cached_gcv + 4 > (map_1_volatility ^ 7)) ? 0 : 1;
 
 	// Our CACHED GCV is the lv2 meta bits of the last reference.
-	
+
 	// LV1 Meta Bits:
 	// 2 bits!
 	// "For hardware convenience, all three L1 map meta bits are stored in COMPLEMENTED form."
@@ -4664,7 +5256,7 @@ void lambda_clockpulse(int I){
 	  if(pS[I].RG_Mode.Main_Stat_Count_Control == 01){
 	    pS[I].stat_counter_main++;
 	  }
-	  nubus_io_request(VM_READ,pS[I].NUbus_ID,pS[I].vm_phys_addr.raw,0);
+	  lcbus_io_request(VM_READ,I,pS[I].vm_phys_addr.raw,0);
 	}
       }
       // Handle operation
@@ -4677,7 +5269,7 @@ void lambda_clockpulse(int I){
 	}
         pS[I].loc_ctr_nxt = disp_word.PC;
         break;
-	
+
       case 1: // Jump-Branch
 	if(pS[I].loc_ctr_reg.raw != (pS[I].loc_ctr_cnt + 1)){
 	  logmsgf(LT_LAMBDA,0,"DISPATCH: Pending JUMP collision investigation stop\n");
@@ -4699,7 +5291,7 @@ void lambda_clockpulse(int I){
 	  logmsgf(LT_LAMBDA,0,"DISPATCH: LPC set w/ call-xct-next?\n");
 	  pS[I].cpu_die_rq = 1;
 	}
-	pS[I].uPCS_stack[pS[I].uPCS_ptr_reg] = pS[I].loc_ctr_reg.raw+1; // Pushes the address of the next instruction	
+	pS[I].uPCS_stack[pS[I].uPCS_ptr_reg] = pS[I].loc_ctr_reg.raw+1; // Pushes the address of the next instruction
         if(pS[I].microtrace){
           char *location;
           char symloc[100];
@@ -4757,7 +5349,7 @@ void lambda_clockpulse(int I){
 	      sprintf(symloc, "%s+%o", location, offset);
 	    }else{
 	      sprintf(symloc, "%s", location);
-	    }	  
+	    }
 	    logmsgf(LT_LAMBDA,10,"%s",symloc);
 	  }
           logmsgf(LT_LAMBDA,10," (%o)\n",pS[I].uPCS_stack[pS[I].uPCS_ptr_reg]);
@@ -4807,7 +5399,7 @@ void lambda_clockpulse(int I){
 	logmsgf(LT_LAMBDA,0,"Unknown dispatch RPN %o\n",disp_word.Operation);
 	pS[I].cpu_die_rq=1;
       }
-    }    
+    }
     break;
   }
 
@@ -4895,4 +5487,148 @@ void lambda_clockpulse(int I){
     logmsgf(LT_LAMBDA,1,"Completed!\n");
 #endif
   }
+}
+
+// Uncomment this to have the Lambda print timing loop statistics (for Lambda 0)
+// #define LAMBDA_SPEED_CHECK
+
+// ** LAMBDA EXECUTION THREAD **
+void *lam_thread(void *arg){
+  int I = *(int *)arg;
+  int y=0;
+  int sleeps=0;
+  uint64_t delays=0;
+  struct timespec start_time,this_time;
+  uint64_t reference_time = 0;
+  uint64_t current_time = 0;
+  uint64_t elapsed_wall_time = 0;
+  uint64_t elapsed_run_time = 0;
+  struct timespec sleep_time;
+  sleep_time.tv_sec = 0;
+  clock_gettime(CLOCK_MONOTONIC,&start_time); // Initialize
+  reference_time = (((uint64_t)start_time.tv_sec*1000000000)+start_time.tv_nsec);
+  // printf("%ld SECONDS, %ld NSEC\n",start_time.tv_sec,start_time.tv_nsec);
+  // Lambda runs at 5MHz
+  // NB: ITIMER LD RAN AT 1/10TH OF A SECOND PER ITERATION
+  while(ld_die_rq == 0){
+    int x = 0;
+    while(ld_die_rq == 0 &&
+	  (pS[I].cpu_die_rq == 0 && pS[I].ConReg.Enable_SM_Clock == 1 && pS[I].PMR.Allow_UInst_Clocks != 0) &&
+	  x < 83334){
+      int pulse = pS[I].SM_Clock_Pulse;
+      // Check for SM clock pulses
+      if(pulse > 0){
+	printf("LAMBDA RUN THREAD %d NEEDS %d SM CLOCKS\n",I,pulse);
+	sm_clock_pulse(I,pS[I].PMR.Debug_Clock,pS[I].SM_Old_PMR);
+	pS[I].SM_Clock_Pulse--;
+      }else{
+	lambda_clockpulse(I);
+      }
+      x++;
+    }
+    if(!(pS[I].cpu_die_rq == 0 && pS[I].ConReg.Enable_SM_Clock == 1 && pS[I].PMR.Allow_UInst_Clocks != 0)){
+      // We aren't enabled, so sleep here.
+      printf("LAMBDA THREAD %d GOING TO SLEEP\n",I);
+      // Clobber the delta timer
+      pS[I].delta_time = 0;
+      // Sleep.
+      while(ld_die_rq == 0 &&
+	    !(pS[I].cpu_die_rq == 0 && pS[I].ConReg.Enable_SM_Clock == 1 && pS[I].PMR.Allow_UInst_Clocks != 0)){
+	// Check for SM clock pulses.
+	int pulse = pS[I].SM_Clock_Pulse;
+	// If we have one, do it
+	while(pulse > 0){
+	  // printf("LAMBDA THREAD %d GENERATING %d SM CLOCKS\n",I,pulse);
+	  sm_clock_pulse(I,pS[I].PMR.Debug_Clock,pS[I].SM_Old_PMR);
+	  pS[I].SM_Clock_Pulse -= pulse;
+	  sleep_time.tv_nsec = 20000;
+	  nanosleep(&sleep_time,NULL); // Will we get another fast?
+	  pulse = pS[I].SM_Clock_Pulse;
+	  // Loop if we did!
+	}
+	// Otherwise wait longer.
+	sleep_time.tv_nsec = 200000;
+	nanosleep(&sleep_time,NULL); // Will we get another fast?
+      }
+      if(ld_die_rq != 0){ break; } // Bail out if dying
+      // Reset reference time and start over.
+      printf("LAMBDA THREAD %d WAKING UP\n",I);
+      // pS[I].microtrace = 1; // For funsies
+      clock_gettime(CLOCK_MONOTONIC,&start_time);
+      reference_time = (((uint64_t)start_time.tv_sec*1000000000)+start_time.tv_nsec);
+      continue;
+    }
+    if(ld_die_rq != 0){ break; } // Bail out if dying
+    // 1 MHz = 0.001 cycles per nanosecond.
+    // 16666667
+    // elapsed_run_time += 100000000;
+    elapsed_run_time += 16666667;
+    // How long?
+    clock_gettime(CLOCK_MONOTONIC,&this_time);
+    current_time = (((uint64_t)this_time.tv_sec*1000000000)+this_time.tv_nsec);
+    while(current_time < (reference_time+16666667)){
+      // int delay = (((reference_time+16666667)-current_time)/1500);
+      int64_t delay = (((reference_time+16666667)-current_time)/2);
+      // Don't try to sleep if we are too far behind
+      if(pS[I].delta_time > 10){ break; }
+      if(delay < 1){ break; }
+      delays += delay;
+      // usleep(delay);
+      sleep_time.tv_nsec = delay;
+      nanosleep(&sleep_time,NULL); // Will we get another fast?
+      sleeps++;
+      clock_gettime(CLOCK_MONOTONIC,&this_time);
+      current_time = (((uint64_t)this_time.tv_sec*1000000000)+this_time.tv_nsec);
+    }
+    // printf("%llu -> %llu\n",reference_time,current_time);
+    // printf("LOOP %d DONE IN %llu ns, %d sleeps\n",y,current_time-reference_time,sleeps);
+    reference_time = current_time;
+    y++;
+    if(y == 10){
+      // Compute total skew
+      int64_t clock_skew;
+      elapsed_wall_time = (((uint64_t)this_time.tv_sec*1000000000)+this_time.tv_nsec);
+      elapsed_wall_time -= (((uint64_t)start_time.tv_sec*1000000000)+start_time.tv_nsec);
+      // clock_skew = (elapsed_run_time-elapsed_wall_time);
+      clock_skew = elapsed_wall_time-elapsed_run_time;
+#ifdef LAMBDA_SPEED_CHECK
+      if(I == 0){
+	printf("ELAPSED RUN TIME:  %llu\nELAPSED WALL TIME: %llu\n",
+	       elapsed_run_time,elapsed_wall_time);
+	printf("CLOCK SKEW:        %lld\nSLEEPS:            %d\nDELAYS:            %lld\n",
+	       clock_skew,sleeps,delays);
+      }
+#endif
+      sleeps = 0;
+      delays = 0;
+      // Update delta timer (in deciseconds)
+      pS[I].delta_time = clock_skew/100000000;
+      // If clock skew is positive, REAL TIME is ahead of RUN TIME, so we want to allow more RUN TIME.
+      if(clock_skew > 2000){
+	uint64_t clocks = (clock_skew/200);
+#ifdef LAMBDA_SPEED_CHECK
+	if(I == 0){
+	  printf("NEED TO MAKE UP %lld CLOCKS\n",clocks);
+	}
+#endif
+	// Cap make-up clocks at one frame
+	if(clocks > 83334){
+	  clocks = 83334;
+	}
+	elapsed_run_time += (clocks*200);
+	while(clocks > 0){
+	  lambda_clockpulse(I);
+	  clocks--;
+	}
+      }
+      y = 0;
+    }
+  }
+  // If we somehow still have the bus master mutex, release it.
+  if(pS[I].NUbus_Master == 1){
+    release_nubus_mastership();
+  }
+  // Done.
+  logmsgf(LT_LAMBDA,0,"LAMBDA THREAD %d TERMINATING\n",I);
+  pthread_exit(NULL);
 }

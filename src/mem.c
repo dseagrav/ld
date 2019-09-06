@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
 
@@ -19,10 +19,12 @@
 */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <strings.h>
+#include <pthread.h>
 
 #include "ld.h"
 #include "nubus.h"
@@ -92,9 +94,15 @@ void mem_clock_pulse(){
 	    NUbus_Data.hword[0] = *(uint16_t *)(MEM_RAM[Card]+(NUbus_Address.Addr-1));
 	    break;
 
-	  case 2: // Block Transfer (ILLEGAL)
-	    logmsgf(LT_MEM,0,"MEM: BLOCK READ REQUESTED\n");
-	    ld_die_rq=1;
+	  case 2: // Block Transfer (USED ONLY BY LAMBDA WHEN FILLING CACHE)
+	    {
+	      uint32_t blockaddr = NUbus_Address.Addr&0xFFFFF0;
+	      NUbus_Data.word = *(uint32_t *)(MEM_RAM[Card]+(NUbus_Address.Addr&0xFFFFFC)); // Fill as normal
+	      NUbus_Block[0].word = *(uint32_t *)(MEM_RAM[Card]+(blockaddr));
+	      NUbus_Block[1].word = *(uint32_t *)(MEM_RAM[Card]+(blockaddr+4));
+	      NUbus_Block[2].word = *(uint32_t *)(MEM_RAM[Card]+(blockaddr+8));
+	      NUbus_Block[3].word = *(uint32_t *)(MEM_RAM[Card]+(blockaddr+12));
+	    }
 	    break;
 
 	  case 3: // Read High Half
@@ -116,8 +124,8 @@ void mem_clock_pulse(){
 	    break;
 
 	  case 2: // BLOCK TRANSFER (ILLEGAL)
-	    logmsgf(LT_MEM,0,"MEM8: BLOCK TRANSFER REQUESTED\n");
-	    ld_die_rq=1;
+	    logmsgf(LT_MEM,0,"MEM8: BLOCK WRITE REQUESTED\n");
+	    exit(-1);
 	    break;
 
 	  case 3: // Write high half
@@ -136,14 +144,14 @@ void mem_clock_pulse(){
 	  NUbus_Data.byte[NUbus_Address.Byte] = MEM_RAM[Card][NUbus_Address.Addr];
 	  NUbus_acknowledge=1;
 	  return;
-	}	
+	}
 	if(NUbus_Request == VM_BYTE_WRITE){
 	  MEM_RAM[Card][NUbus_Address.Addr] = NUbus_Data.byte[NUbus_Address.Byte];
 	  NUbus_acknowledge=1;
           return;
 	}
 	break;
-	
+
 	/*
       case 0xffdfe0: // ???
         if(NUbus_Request == VM_BYTE_READ){
@@ -180,7 +188,7 @@ void mem_clock_pulse(){
           return;
         }
 	break;
-	
+
 	// Configuration ROM
       case 0xFFE000 ... 0xFFFFFF:
         if((NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ)
@@ -197,7 +205,7 @@ void mem_clock_pulse(){
       case 0xfff800 ... 0xffff63:
 	if(NUbus_Request == VM_READ){
 	  uint8_t prom_addr = (NUbus_Address.Addr-0xfff800)/4;
-	  if(prom_addr <= 0x12){	  
+	  if(prom_addr <= 0x12){
 	    NUbus_Data.word = prom_string[prom_addr];
 	  }else{
 	    NUbus_Data.word = 0;
@@ -207,16 +215,16 @@ void mem_clock_pulse(){
 	}
 	if(NUbus_Request == VM_BYTE_READ){
 	  uint8_t prom_addr = (NUbus_Address.Addr-0xfff800)/4;
-	  if(prom_addr <= 0x12){	  
+	  if(prom_addr <= 0x12){
 	    NUbus_Data.word = prom_string[prom_addr];
 	  }else{
 	    NUbus_Data.word = 0;
 	  }
 	  NUbus_acknowledge=1;
 	  return;
-	}	
+	}
 	break;
-	
+
 	// Serial number? Model number?
       case 0xFFFF64 ... 0xFFFFFF:
 	if(NUbus_Request == VM_READ){
@@ -231,13 +239,13 @@ void mem_clock_pulse(){
 	}
 	break;
 	*/
-	
+
       // Uhoh!
       default:
 	logmsgf(LT_MEM,0,"RAM: Unimplemented address 0x%X (0x%X)\n",
 	       NUbus_Address.Addr,NUbus_Address.raw);
 	lambda_dump(DUMP_ALL);
-	ld_die_rq=1;      
+	ld_die_rq=1;
 	break;
       }
     }

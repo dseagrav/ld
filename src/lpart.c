@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
    Robert Swindells <rjs@fdy2.co.uk>
@@ -74,7 +74,7 @@ struct raw_volume_label_s {
 	uint8_t vl_labl[4];
 	uint8_t vl_rev[4];
 	uint8_t vl_cyls[4];
-	uint8_t vl_heads[4]; 
+	uint8_t vl_heads[4];
 	uint8_t vl_sectors_per_track[4];
 	uint8_t vl_block_per_cyl[4];
 	uint8_t vl_microload[4];
@@ -155,7 +155,7 @@ read_block(int blknum)
 	ret = lseek(fd, offset, SEEK_SET);
 	if (ret < 0)
 		return 1;
-	
+
 	ret = read(fd, block, E_BLKSIZE);
 	if (ret != E_BLKSIZE)
 		return -1;
@@ -172,7 +172,7 @@ write_block(int blknum)
 	ret = lseek(fd, offset, SEEK_SET);
 	if (ret < 0)
 		return 1;
-	
+
 	ret = write(fd, block, E_BLKSIZE);
 	if (ret != E_BLKSIZE)
 		return -1;
@@ -229,7 +229,7 @@ read_part_table(char *filename)
 		printf("%s: missing LABL signature\n", filename);
 
 		if (debug_flag) printf("found %c%c%c%c\n",
-				       vl->vl_labl[0], vl->vl_labl[1], 
+				       vl->vl_labl[0], vl->vl_labl[1],
 				       vl->vl_labl[2], vl->vl_labl[3]);
 		return -1;
 	}
@@ -244,7 +244,7 @@ read_part_table(char *filename)
 	printf("bytes/block: %d\n", bytes_per_block);
 
 	printf("comment: '%s'\n", vl->vl_comment);
-	
+
 	pt = (struct part_table_s *)(&block[0x200]);
 	count = int4(pt->pt_num_entries);
 	size_in_words = int4(pt->pt_size_entry);
@@ -257,7 +257,7 @@ read_part_table(char *filename)
 
 	pe = (struct part_table_entry_s *)(&pt->pt_offset);
 	for (i = 0; i < count; i++) {
-		int user_type, property;
+	  // int user_type, property;
 
 		memcpy(part_table[index].name,
 		       pe->pte_name, 4);
@@ -268,7 +268,7 @@ read_part_table(char *filename)
 		memset(part_table[index].comment, 0,
 		       sizeof(part_table[index].comment));
 
-		memcpy(part_table[index].comment, 
+		memcpy(part_table[index].comment,
 		       pe->pte_comment, sizeof(pe->pte_comment));
 
 		printf("%-4s %6d/%6d '%s' ",
@@ -343,8 +343,8 @@ extract_part(char *partition)
 int
 load_part(char *partition)
 {
-	int i, j, index, blocks, fd2, swap;
-	uint8_t sblock[E_BLKSIZE];
+        int i, index, blocks, fd2; // j, swap;
+	// uint8_t sblock[E_BLKSIZE];
 	off_t offset;
 	size_t bpblk;
 	ssize_t ret;
@@ -379,7 +379,7 @@ load_part(char *partition)
 		ret = read(fd2, block, bpblk);
 
 		ret = write(fd, block, ret);
-		if (ret != bpblk) {
+		if (ret < 0 || (size_t)ret != bpblk) {
 			break;
 		}
 	}
@@ -390,9 +390,11 @@ load_part(char *partition)
 }
 
 int
-active_part(char *partition, int onoff)
+active_part()
 {
 #if 0
+active_part(char *partition, int onoff)
+{
 	struct part_table_s *pt;
 	struct part_table_entry_s *pe;
 	int i, count, size_in_words;
@@ -419,7 +421,7 @@ active_part(char *partition, int onoff)
 				printf("clearing %s\n", part_table[i].name);
 			}
 		}
-			
+
 		pe = (struct part_table_entry_s *)
 			(((uint8_t *)pe) + (size_in_words * sizeof(uint32_t)));
 	}
@@ -457,7 +459,7 @@ mark_expt(void)
 				printf("marking %s\n", part_table[i].name);
 			}
 		}
-			
+
 		pe = (struct part_table_entry_s *)
 			(((uint32 *)pe) + size_in_words);
 	}
@@ -485,10 +487,11 @@ usage(void)
 extern char *optarg;
 extern int optind;
 
+int
 main(int argc, char *argv[])
 {
 	int c, need_write;
-	char *partition;
+	char *partition = NULL;
 
 	filename = "disk.img";
 
@@ -544,11 +547,11 @@ main(int argc, char *argv[])
 	}
 
 	if (deactive_flag) {
-		active_part(partition, 0);
+	  active_part(); // partition, 0);
 	}
 
 	if (active_flag) {
-		active_part(partition, 1);
+	  active_part(); // artition, 1);
 	}
 
 	if (load_flag) {

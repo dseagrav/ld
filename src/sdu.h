@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
 
    This file is part of LambdaDelta.
@@ -19,6 +19,10 @@
 
 void sdu_init();
 void sdu_clock_pulse();
+void *sdu_thread(void *arg);
+
+extern pthread_mutex_t multibus_master_mutex;
+
 #ifdef HAVE_YAML_H
 int yaml_sdu_mapping_loop(yaml_parser_t *parser);
 #endif
@@ -179,7 +183,7 @@ typedef struct tagprocessor_configuration_qs {
   uint32_t n_aux_devs;
   uint32_t aux_dev[2];
   uint32_t excelan_multibus_map_base;
-  uint32_t excelan_multibus_map_size;  
+  uint32_t excelan_multibus_map_size;
 } __attribute__((packed)) processor_configuration_qs;
 
 #define MAX_SHARE_IOPB 8

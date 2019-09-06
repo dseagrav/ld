@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
 
@@ -18,11 +18,11 @@
    along with LambdaDelta.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+// Functions
 void vcmem_init(int vn,int slot);
 void vcmem_clock_pulse(int vn);
+void vcmem_vblank(int vn);
 void vcmem_kb_int(int vn);
-
-// Register definitions
 
 // Function Register
 typedef union rFunctionReg {

@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
 
@@ -26,7 +26,7 @@ void lambda_dump(int opts);
 void debug_tx_rq(uint8_t rq,uint32_t addr,uint32_t data);
 void debug_connect();
 void debug_clockpulse();
-#endif 
+#endif
 void nubus_cycle(int sdu);
 void sducons_write(char data);
 
@@ -36,13 +36,15 @@ void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data);
 void framebuffer_update_byte(int vn,uint32_t addr,uint8_t data);
 void set_bow_mode(int vn,int mode);
 
-#ifdef SDL2
-// xbeep
+#if defined(XBEEP) || defined(CONFIG_PHYSKBD)
+// xbeep and/or physkbd beep
 void xbeep(int halfwavelength, int duration);
-#else
+#endif
+
+#if defined(CONFIG_PHYSKBD) || !defined(XBEEP)
 // Old hack
 // beep on/off (called when vcmem keyboard control register 5 toggles "send break" bit.
-void audio_control(int onoff);
+void audio_control(int onoff,int console);
 #endif
 
 // Host ethernet interface
@@ -98,7 +100,7 @@ typedef union rMI {
   struct {
     uint16_t Adr:9;
     uint8_t Opcode:5;
-    uint8_t Dest:2;    
+    uint8_t Dest:2;
   } __attribute__((packed));
   struct {
     uint8_t Displacement:6;
@@ -160,7 +162,7 @@ typedef union rlv1_ent {
   struct {
     uint8_t LV2_Block:7;
     uint8_t MB:2; // MB0, MB1
-    uint8_t MB_Valid:1; 
+    uint8_t MB_Valid:1;
   } __attribute__((packed));
 } lv1_ent;
 
@@ -180,7 +182,7 @@ typedef union rlv2_ctl_ent {
     uint8_t Meta:6;
     uint8_t Status:3;
     uint8_t AccHi:1; // Hi bit of access (it overlaps, see next struct)
-    uint8_t Force_Allowed:1;    
+    uint8_t Force_Allowed:1;
     uint8_t Packet_Code:2; // Byte code? ("packet size")
     uint8_t Packetize_Writes:1; // ???
     uint8_t Cache_Permit:1;
@@ -232,7 +234,7 @@ typedef union rDestSelect {
   struct F {
     uint16_t Padding:14;
     uint8_t  Spare:6;
-    uint8_t  Dest:6;    
+    uint8_t  Dest:6;
   } __attribute__((packed)) F;
 } DestSelect;
 
@@ -316,7 +318,7 @@ typedef union rUInst {
   // ALU/Byte destination select
   DestSelect    Destination;
   // Global (right half)
-  struct {    
+  struct {
     uint32_t rtHalf:30;
     uint8_t  Opcode:2;
     uint8_t  MSource:7;

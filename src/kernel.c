@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
 
@@ -37,10 +37,11 @@
 #include <errno.h>
 #include <pwd.h>
 #include <termios.h>
+#include <pthread.h>
 
 // TCP socket
 #include <netinet/in.h>
-#include <netdb.h> 
+#include <netdb.h>
 #include <sys/socket.h>
 
 #ifdef HAVE_YAML_H
@@ -61,8 +62,8 @@
 
 // LambdaDelta things
 #include "ld.h"
-#include "lambda_cpu.h"
 #include "nubus.h"
+#include "lambda_cpu.h"
 #include "mem.h"
 #include "vcmem.h"
 #include "sdu.h"
@@ -87,7 +88,7 @@ extern struct lambdaState pS[2];
 
    20 tracks per cylinder
    842 cylinders per disk
-   (3 cylinders fixed area on /F)   
+   (3 cylinders fixed area on /F)
 */
 // int disk_geometry_sph = 25;  // Sectors per head
 // int disk_geometry_spc = 500; // Sectors per cylinder
@@ -100,7 +101,12 @@ uint32_t mouse_wake_loc[2] = { 0170,0170 };
 uint8_t sdu_rotary_switch = 0;
 
 // Globals
-int ld_die_rq;                  // Reason for emulator to die
+pthread_t sdu_thread_handle;    // Handle for SDU thread
+pthread_t smd_thread_handle;    // Handle for SMD thread
+pthread_t enet_thread_handle;   // Handle for 3Com thread
+pthread_t tm_thread_handle;     // Handle for Tapemaster thread
+pthread_t lam_thread_handle[2]; // Handles for Lambda threads
+volatile int ld_die_rq;         // Reason for emulator to die
 int cp_state[2] = { 0,0 };      // 0 = cold, 1 = bootstrap, 2 = lisp, 3 = lisp + mouse initialized
 int debug_log_enable = 0;
 int debug_log_trigger = 0;
@@ -345,7 +351,7 @@ uint8_t debug_rx_buf[64];
 uint32_t debug_last_addr = 0;
 int debug_fd = -1;
 int debug_conn_fd = -1;
-#endif 
+#endif
 
 // SDU CONSOLE SOCKET STUFF
 uint8_t sdu_rx_ptr = 0;
@@ -652,8 +658,8 @@ static const char *logtype_name[] = { "SYSTEM",
 
 // SDL items
 // Update rates
-int input_fps = 83333;  // 60 FPS
-int video_fps = 500000; // 10 FPS
+int input_fps = 16667;  // 60 FPS
+int video_fps = 100000; // 10 FPS
 int input_frame = 0;    // Frame trigger flag
 int video_frame = 0;    // Frame trigger flag
 // Keyboard buffer
@@ -771,7 +777,7 @@ void kbd_handle_char(int symcode, int down){
   // Check for console switch key
 #ifdef CONFIG_2X2
   if(sdlchar == SDLK_F9){
-    if(down){      
+    if(down){
       // Switch active console
       active_console ^= 1;
       printf("CONSW: %d\n",active_console);
@@ -803,14 +809,14 @@ void kbd_handle_char(int symcode, int down){
   if (sdlchar >= 'a' && sdlchar <= 'z'){
     sdlchar -= ' ';
   }
-  
+
   // Obtain keymap entry
   outchar = map[sdlchar];
 
   // We send 2 characters. First is keycode, second is key state + bucky bits.
   put_rx_ring(active_console,outchar); // Keycode
   // Next is key up/down state and bucky bits
-  outchar = 0x80; // This is the "second byte" flag  
+  outchar = 0x80; // This is the "second byte" flag
   if(down){
     // Key Down
     outchar |= 0x40; // Key Down Flag
@@ -876,7 +882,7 @@ void sdl_send_mouse_event(void){
     if (state & SDL_BUTTON(SDL_BUTTON_LEFT)){ buttons ^= 0x04; }
     if (state & SDL_BUTTON(SDL_BUTTON_MIDDLE)){ buttons ^= 0x02; }
     if (state & SDL_BUTTON(SDL_BUTTON_RIGHT)){ buttons ^= 0x01; }
-    
+
     if(mouse_phase == 1 && buttons != mouse_last_buttons){
       put_mouse_rx_ring(active_console,0);
       put_mouse_rx_ring(active_console,0);
@@ -890,7 +896,7 @@ void sdl_send_mouse_event(void){
     if(xm == 0 && ym == 0 && buttons == mouse_last_buttons){ return; }
     // printf("MOUSE: Movement: %d/%d buttons 0x%.2x\n",xm,ym,buttons);
     // Construct mouse packet and send it
-    if(mouse_phase == 0){    
+    if(mouse_phase == 0){
       put_mouse_rx_ring(active_console,0x80|buttons); // Buttons
       put_mouse_rx_ring(active_console,xm&0xFF);
       put_mouse_rx_ring(active_console,ym&0xFF);
@@ -904,7 +910,7 @@ void sdl_send_mouse_event(void){
   if(mouse_op_mode == 1){
     // Shared Mode
     // If lisp is not running, return
-    if(cp_state[active_console] != 3){ return; }    
+    if(cp_state[active_console] != 3){ return; }
     state = SDL_GetMouseState(&xm, &ym);
     // If the inhibit counter is nonzero, throw away this update (it's fake)
     if(mouse_update_inhibit > 0){ mouse_update_inhibit--; return; }
@@ -924,7 +930,7 @@ void sdl_send_mouse_event(void){
       put_mouse_rx_ring(active_console,0x80|buttons); // Buttons
       put_mouse_rx_ring(active_console,0);
       put_mouse_rx_ring(active_console,0);
-      mouse_phase ^= 1;      
+      mouse_phase ^= 1;
       mouse_last_buttons = buttons;
     }else{
       // No, update position
@@ -985,7 +991,7 @@ void accumulate_update(int h, int v, int hs, int vs){
 
 void send_accumulated_updates(void){
   int hs, vs;
-  
+
   hs = u_maxh - u_minh;
   vs = u_maxv - u_minv;
   if (u_minh != 0x7fffffff && u_minv != 0x7fffffff &&
@@ -993,7 +999,7 @@ void send_accumulated_updates(void){
     {
       SDL_UpdateRect(screen, u_minh, u_minv, hs, vs);
     }
-  
+
   u_minh = 0x7fffffff;
   u_maxh = 0;
   u_minv = 0x7fffffff;
@@ -1015,7 +1021,7 @@ void sdl_refresh(int vblank){
 
     case SDL_KEYDOWN:
       sdl_process_key(&ev->key, 1);
-      break;      
+      break;
     case SDL_KEYUP:
       sdl_process_key(&ev->key, 0);
       break;
@@ -1032,7 +1038,7 @@ void sdl_refresh(int vblank){
 	sdl_system_shutdown_request();
       }
       break;
-      
+
     default:
       break;
     }
@@ -1043,7 +1049,7 @@ void sdl_cleanup(void){
   if(mouse_op_mode == 0){
     SDL_WM_GrabInput(SDL_GRAB_OFF);
   }
-  SDL_ShowCursor(SDL_ENABLE);    
+  SDL_ShowCursor(SDL_ENABLE);
   if(sdu_conn_fd > 0){
     close(sdu_conn_fd);
   }
@@ -1136,12 +1142,13 @@ int sdl_init(int width, int height){
   atexit(sdl_cleanup);
 
   // Kick interval timer
+  /*
   SDLTimer = SDL_AddTimer(100,sdl_timer_callback,NULL);
   if(SDLTimer == NULL){
     fprintf(stderr,"Unable to start interval timer\n");
     exit(-1);
   }
-
+  */
   return(0);
 }
 
@@ -1170,7 +1177,7 @@ void framebuffer_update_word(int vn,uint32_t addr,uint32_t data){
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_on;
       }else{
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_off;
-      }  
+      }
       outpos++;
       mask <<= 1;
     }
@@ -1181,7 +1188,7 @@ void framebuffer_update_word(int vn,uint32_t addr,uint32_t data){
 	FB_Image[vn][outpos] = pixel_on;
       }else{
 	FB_Image[vn][outpos] = pixel_off;
-      }  
+      }
       outpos++;
       mask <<= 1;
     }
@@ -1208,10 +1215,10 @@ void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data){
   if(active_console == vn){
     while(mask < 0x10000LL){
       if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
-	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_on;	
+	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_on;
       }else{
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_off;
-      }  
+      }
       outpos++;
       mask <<= 1;
     }
@@ -1222,7 +1229,7 @@ void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data){
 	FB_Image[vn][outpos] = pixel_on;
       }else{
 	FB_Image[vn][outpos] = pixel_off;
-      }  
+      }
       outpos++;
       mask <<= 1;
     }
@@ -1252,8 +1259,8 @@ void framebuffer_update_byte(int vn,uint32_t addr,uint8_t data){
       if((black_on_white[vn] == 0 && (data&mask) != mask) || (black_on_white[vn] == 1 && (data&mask) == mask)){
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_on;
       }else{
-	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_off;	
-      }    
+	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_off;
+      }
       outpos++;
       mask <<= 1;
     }
@@ -1443,7 +1450,7 @@ static void sdl_send_mouse_event(void){
     if (state & SDL_BUTTON(SDL_BUTTON_LEFT)){ buttons ^= 0x04; }
     if (state & SDL_BUTTON(SDL_BUTTON_MIDDLE)){ buttons ^= 0x02; }
     if (state & SDL_BUTTON(SDL_BUTTON_RIGHT)){ buttons ^= 0x01; }
-    
+
     if(mouse_phase == 1 && buttons != mouse_last_buttons){
       put_mouse_rx_ring(active_console,0);
       put_mouse_rx_ring(active_console,0);
@@ -1524,7 +1531,7 @@ void set_bow_mode(int vn,int mode){
   }
   logmsgf(LT_VCMEM,10,"VC %d BLACK-ON-WHITE MODE now %d\n",vn,mode);
   black_on_white[vn] = mode;  /* update */
-  
+
   // invert pixels
   uint32_t *p = FB_Image[active_console];
   if(vn == active_console){
@@ -1536,10 +1543,12 @@ void set_bow_mode(int vn,int mode){
       }
     }
     // Refresh display
+    /*
     SDL_UpdateTexture(SDLTexture, NULL, FrameBuffer, (VIDEO_WIDTH*4));
     SDL_RenderClear(SDLRenderer);
     SDL_RenderCopy(SDLRenderer, SDLTexture, NULL, NULL);
     SDL_RenderPresent(SDLRenderer);
+    */
   }else{
     for (i = 0; i < VIDEO_WIDTH; i++) {
       for (j = 0; j < MAX_VIDEO_HEIGHT; j++) {
@@ -1547,7 +1556,7 @@ void set_bow_mode(int vn,int mode){
 	p++;
       }
     }
-  }  
+  }
 }
 
 void accumulate_update(int h, int v, int hs, int vs){
@@ -1636,17 +1645,19 @@ uint32_t sdl_timer_callback(uint32_t interval, void *param __attribute__ ((unuse
 
 // New timer callback because SDL2's interval timer sucks
 // Gets called every 100000 microseconds (so 10 times a second)
+/*
 static void itimer_callback(int signum __attribute__ ((unused))){
   // Real time passed
   real_time++;
   // Also increment status update counter
   stat_time++;
 }
+*/
 
 int sdl_init(int width, int height){
   int flags;
   int i,j;
-  struct sigaction sigact;
+  // struct sigaction sigact;
 
   flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO;
 
@@ -1660,10 +1671,12 @@ int sdl_init(int width, int height){
   signal(SIGQUIT, SIG_DFL);
 
   // Capture SIGALRM for our callback
+  /*
   sigact.sa_handler = itimer_callback;
   sigemptyset(&sigact.sa_mask);
   sigact.sa_flags = SA_RESTART; // Attempt to restart syscalls interrupted by this signal
   sigaction(SIGALRM,&sigact,NULL);
+  */
 
   // Create window
   SDLWindow = SDL_CreateWindow("LambdaDelta",
@@ -1727,7 +1740,7 @@ int sdl_init(int width, int height){
     for (j = 0; j < MAX_VIDEO_HEIGHT; j++)
       *p++ = pixel_off;
   }
-  
+
   // Grab the mouse if we are in direct mode
   if(mouse_op_mode == 0){
     SDL_SetRelativeMouseMode(SDL_TRUE);
@@ -1742,11 +1755,13 @@ int sdl_init(int width, int height){
     exit(-1);
   }
   */
+  /* Don't use the interval timer anymore
   struct itimerval itv;
   bzero((uint8_t *)&itv,sizeof(struct itimerval));
   itv.it_interval.tv_usec = 100000;
   itv.it_value.tv_usec = 100000;
   setitimer(ITIMER_REAL,&itv,NULL);
+  */
 
   // Allow a screen saver to work
   SDL_EnableScreenSaver();
@@ -1817,7 +1832,7 @@ void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data){
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_on;
       }else{
 	FB_Image[vn][outpos] = FrameBuffer[outpos] = pixel_off;
-      }  
+      }
       outpos++;
       mask <<= 1;
     }
@@ -1828,7 +1843,7 @@ void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data){
 	FB_Image[vn][outpos] = pixel_on;
       }else{
 	FB_Image[vn][outpos] = pixel_off;
-      }  
+      }
       outpos++;
       mask <<= 1;
     }
@@ -2341,13 +2356,13 @@ void sdu_cons_init(){
   flags = fcntl(sdu_fd,F_GETFL,0);
   if(flags < 0){ flags = 0; }
   fcntl(sdu_fd,F_SETFL,flags|O_NONBLOCK);
-  
+
   // Clobber and setup socket
   bzero((char *)&sdu_addr,sizeof(sdu_addr));
   sdu_addr.sin_family = AF_INET;
   sdu_addr.sin_addr.s_addr = INADDR_ANY;
   sdu_addr.sin_port = htons(3637);
-  
+
   // Bind
   if(bind(sdu_fd,(struct sockaddr *)&sdu_addr,sizeof(sdu_addr)) < 0){
     perror("sdu_cons_init(): bind()");
@@ -2356,7 +2371,7 @@ void sdu_cons_init(){
     exit(-1);
     return;
   }
-  
+
   // Listen
   listen(sdu_fd,5);
 
@@ -2403,7 +2418,7 @@ void sdu_cons_clockpulse(){
     // Become nonblocking
     flags = fcntl(sdu_conn_fd,F_GETFL,0);
     if(flags < 0){ flags = 0; }
-    fcntl(sdu_conn_fd,F_SETFL,flags|O_NONBLOCK);    
+    fcntl(sdu_conn_fd,F_SETFL,flags|O_NONBLOCK);
     return;
   }else{
     res = read(sdu_conn_fd,sdu_rx_buf+sdu_rx_ptr,1);
@@ -2420,7 +2435,7 @@ void sdu_cons_clockpulse(){
       printf("SDUCONS: BAD PACKET? Got %d bytes\n",(int)res);
       return;
     }else{
-      // Got a byte      
+      // Got a byte
       printf("SDUCONS: IO: 0x%x\n",sdu_rx_buf[sdu_rx_ptr]);
       if(sdu_tcmd_state > 0){
 	printf("SDUCONS: TCMD %d\n",sdu_rx_buf[sdu_rx_ptr]);
@@ -2431,7 +2446,7 @@ void sdu_cons_clockpulse(){
 	  sdu_tcmd_state = 0;
 	}else{
 	  // Something else, eat the next two bytes
-	  sdu_rx_buf[sdu_rx_ptr] = 0;	
+	  sdu_rx_buf[sdu_rx_ptr] = 0;
 	  sdu_tcmd_state++;
 	  if(sdu_tcmd_state == 3){
 	    sdu_tcmd_state = 0;
@@ -2451,7 +2466,7 @@ void sdu_cons_clockpulse(){
 	  if(sdu_rx_buf[sdu_rx_ptr] != 0x00){
 	    // No, tell the SDU
 	    sdu_rx_ptr++;
-	    sducons_rx_int();	    
+	    sducons_rx_int();
 	  }
 	}
       }
@@ -2476,7 +2491,7 @@ void sdu_kbd_init(){
   int flags;
   struct termios term;
   // Obtain FD
-  kbd_fd = open(kbd_filename,O_RDONLY);
+  kbd_fd = open(kbd_filename,O_RDWR);
   if(kbd_fd < 0){
     perror("KBD:open");
     kbd_fd = -1;
@@ -2525,13 +2540,57 @@ void sdu_kbd_clockpulse(){
     x++;
   }
 }
+
+// Here is the main function to implement the %BEEP instruction, which originally calls the
+// XBEEP routine in SYS:ULAMBDA;UC-HACKS. %BEEP takes two args: wavelength and duration.
+// In SYS:WINDOW;TVDEFS,
+//   duration is "the number of cycles of beep tone to output" (default #o400000 = 131072.), and
+//   wavelength is "the duration of one cycle of beep tone" (default #o3150 = 744.)
+// SYS:ULAMBDA;UC-HACKS say they are both in microseconds, and that wavelength is half-wavelength.
+// SYS:DEMO;BEEPS says
+// period (wavelength) is
+//   number of clockcycles in half period of tone.  100 produces a really high
+//   pitch tone, while 5000 produces about the lowest tone possible.  500 is
+//   the default beep tone on most of the lisp machines (I think).
+// length (duration) is
+//   Total number of clockcycles that tone will last for.  A value of 100000
+//   last a little less than (really roughly) a 10th of a second.
+// kernel.c says Lambda has a 5MHz clock:
+//   5 MHz/100/2 = 50000/2 = 25 KHz
+//   5 MHz/5000/2 = 1000/2 = 500 Hz
+//   both seem off by a factor 10 by BEEPS description?
+// Using 1 MHz (from BEEPS description of duration):
+//   1 MHz/100/2 = 10000/2 = 5 KHz
+//   1 MHz/5000/2 = 200/2 = 100 Hz
+// Freq seems OK, but short durations (under 40000?) work intermittently.
+// HACKS:BOOP seems to work using 10000?
+void xbeep(int halfwavelength, int duration) {
+  char kbuf[32];
+  ssize_t res = 0;
+  int freq = (int)(1000000.0f / (float)(halfwavelength*2));
+  int length = (int)duration/1000;
+  // xbeep got 672.043030 hz and 131072 microseconds duration
+  // printf("XBEEP: FREQUENCY %d hz, DURATION %d millisecond\n",freq,length);
+  // Tell KB about it  
+  if(kbd_fd < 0){ return; }
+  sprintf(kbuf,"B:%d:%d\n",freq,length);
+  res = write(kbd_fd,kbuf,strlen(kbuf));
+  if(res < 0){
+    if(errno != EAGAIN && errno != EWOULDBLOCK){
+      perror("sdu_kbd:write()");
+      // close(kbd_fd);
+      // kbd_fd = 0;
+    }
+    return;
+  }
+}
 #endif
 
 #ifdef BURR_BROWN
 // Debug interface initialization
 void debug_init(){
   struct sockaddr_in debug_addr;
-  
+
   // Open debug socket
   debug_fd = socket(AF_INET, SOCK_STREAM, 0);
   if(debug_fd < 0){
@@ -2539,7 +2598,7 @@ void debug_init(){
     debug_fd = -1;
     return;
   }
-    
+
   if(debug_target_mode != 0){
     int flags;
     // Become nonblocking
@@ -2552,7 +2611,7 @@ void debug_init(){
     debug_addr.sin_family = AF_INET;
     debug_addr.sin_addr.s_addr = INADDR_ANY;
     debug_addr.sin_port = htons(3636);
-    
+
     // Bind
     if(bind(debug_fd,(struct sockaddr *)&debug_addr,sizeof(debug_addr)) < 0){
       perror("debug_init(): bind()");
@@ -2560,7 +2619,7 @@ void debug_init(){
       debug_fd = -1;
       return;
     }
-    
+
     // Listen
     listen(debug_fd,5);
   }
@@ -2583,12 +2642,12 @@ void debug_connect(){
   }
   bzero((char *)&target_addr, sizeof(target_addr));
   target_addr.sin_family = AF_INET;
-  bcopy((char *)target->h_addr, 
+  bcopy((char *)target->h_addr,
 	(char *)&target_addr.sin_addr.s_addr,
 	target->h_length);
   target_addr.sin_port = htons(3636);
   if(connect(debug_fd,(struct sockaddr *)&target_addr,sizeof(target_addr)) < 0){
-    perror("debug_connect()");    
+    perror("debug_connect()");
   }else{
     int flags;
     debug_conn_fd = debug_fd;
@@ -2621,8 +2680,8 @@ void debug_tx_rq(uint8_t rq,uint32_t addr,uint32_t data){
   tx_buf[5] = tmp.byte[0];
   tx_buf[6] = tmp.byte[1];
   tx_buf[7] = tmp.byte[2];
-  tx_buf[8] = tmp.byte[3];  
-  res = write(debug_conn_fd,tx_buf,9);  
+  tx_buf[8] = tmp.byte[3];
+  res = write(debug_conn_fd,tx_buf,9);
   if(res < 0){
     perror("debug:write()");
   }
@@ -2634,7 +2693,7 @@ void debug_clockpulse(){
   ssize_t res = 0;
   struct sockaddr_in other_addr;
   socklen_t socklen = sizeof(other_addr);
-  if(debug_fd < 0){ return; }  
+  if(debug_fd < 0){ return; }
   if(debug_conn_fd < 0){
     if(debug_target_mode != 0){
       // Is anybody out there?
@@ -2650,10 +2709,10 @@ void debug_clockpulse(){
 	return;
       }
       printf("DEBUG: Connection accepted\n");
-      // Got one!      
-    }  
-    return; 
-  }  
+      // Got one!
+    }
+    return;
+  }
   switch(debug_io_state){
   case 0: // Nothing
     res = read(debug_conn_fd,debug_rx_buf,64);
@@ -2687,7 +2746,7 @@ void debug_clockpulse(){
 	BB_Remote_Data.byte[1] = debug_rx_buf[6];
 	BB_Remote_Data.byte[2] = debug_rx_buf[7];
 	BB_Remote_Data.byte[3] = debug_rx_buf[8];
-	if(debug_rx_buf[0] == 0xFF){ BB_Remote_Result = 3; }else{ BB_Remote_Result = 2; }	
+	if(debug_rx_buf[0] == 0xFF){ BB_Remote_Result = 3; }else{ BB_Remote_Result = 2; }
 	// printf("DEBUG: Got ack 0x%.2X Addr 0x%.8X Data 0x%.8X\n",debug_rx_buf[0],BB_Remote_Addr.raw,BB_Remote_Data.word);
       }else{
 	printf("DEBUG: Got out-of-order ack 0x%.2X Addr 0x%.8X Data 0x%.8X\n",debug_rx_buf[0],ack_addr,BB_Remote_Data.word);
@@ -2707,7 +2766,7 @@ void debug_clockpulse(){
 	break;
       }
     }
-    debug_io_state = 1;    
+    debug_io_state = 1;
     // Fall into...
   case 1: // New incoming request
     // Await bus
@@ -2740,7 +2799,7 @@ void debug_clockpulse(){
       debug_io_state = 0; // Ready for next packet
     }else{
       // Bus still busy?
-      if(NUbus_Busy == 0){ 
+      if(NUbus_Busy == 0){
 	// No, our transaction failed
 	printf("DEBUG: BUS TIMEOUT while handing RQ 0x%.2X Addr 0x%.8X Data 0x%.8X\n",NUbus_Request,NUbus_Address.raw,NUbus_Data.word);
 	// printf("DEBUG: BUS TIMEOUT?\n");
@@ -2748,8 +2807,8 @@ void debug_clockpulse(){
 	debug_io_state = 0; // Ready for next packet
       }
       return;
-    }    
-  }  
+    }
+  }
   return;
 }
 #endif
@@ -2797,7 +2856,7 @@ void map_key(int sval, int dval){
   default:
     modmap[sval] = 0; // Not a modifier
     break;
-  }	
+  }
 }
 
 #ifdef XBEEP
@@ -2853,7 +2912,7 @@ void xbeep_audio_close() {
 
 // Here is the main function to implement the %BEEP instruction, which originally calls the
 // XBEEP routine in SYS:ULAMBDA;UC-HACKS. %BEEP takes two args: wavelength and duration.
-// In SYS:WINDOW;TVDEFS, 
+// In SYS:WINDOW;TVDEFS,
 //   duration is "the number of cycles of beep tone to output" (default #o400000 = 131072.), and
 //   wavelength is "the duration of one cycle of beep tone" (default #o3150 = 744.)
 // SYS:ULAMBDA;UC-HACKS say they are both in microseconds, and that wavelength is half-wavelength.
@@ -2866,7 +2925,7 @@ void xbeep_audio_close() {
 //   Total number of clockcycles that tone will last for.  A value of 100000
 //   last a little less than (really roughly) a 10th of a second.
 // kernel.c says Lambda has a 5MHz clock:
-//   5 MHz/100/2 = 50000/2 = 25 KHz 
+//   5 MHz/100/2 = 50000/2 = 25 KHz
 //   5 MHz/5000/2 = 1000/2 = 500 Hz
 //   both seem off by a factor 10 by BEEPS description?
 // Using 1 MHz (from BEEPS description of duration):
@@ -2884,26 +2943,39 @@ void xbeep(int halfwavelength, int duration) {
 }
 #else
 // Non-SDL2 XBEEP goes here
-#endif // SDL1 vs SLD2 XBEEP
-#else // XBEEP vs. console beep
+#endif // SDL1 vs SDL2 XBEEP
+#endif // XBEEP
+
+// For PHYSKBD, drive xbeep if we beep and lisp isn't running.
+#if defined(CONFIG_PHYSKBD) || !defined(XBEEP)
 // Use console beep instead of XBEEP
 // Handle writes to keyboard control reg #5 to click/not (cf vcmem.c)
-void audio_control(int onoff) {
-  static int state = 0;
-  static uint64_t toggle_time = 0;
+void audio_control(int onoff,int console) {
+  static int state[2] = {0,0};
+  static uint64_t toggle_time[2] = {0,0};
 
-  if(onoff == state){
+  // Bail out if we haven't changed state
+  if(onoff == state[console]){
     return;
   }
+
+  // WE PROBABLY BROKE THIS WHEN WE STOPPED INCREMENTING real_time AND FRIENDS
+  printf("AC %d: NEW STATE %d\n",console,onoff);
+  
   // this value seems to "work" for single beeps, and multiple beeps (around 4)
   // with default values for TV:BEEP-WAVELENGTH and TV:BEEP-DURATION,
-  if(onoff && (real_time > (toggle_time + 1))){
+  if(onoff && (real_time > (toggle_time[console] + 1))){
+#ifdef CONFIG_PHYSKBD
+    logmsgf(LT_VCMEM,10,"NON-LISP BEEP\n");
+    // xbeep(744,131072);
+#else
     printf("\a");
     logmsgf(LT_VCMEM,10,"BEEP\n");
     fflush(stdout);
-    toggle_time = real_time;
+#endif
+    toggle_time[console] = real_time;
   }
-  state = onoff;
+  state[console] = onoff;
 }
 #endif
 
@@ -2971,9 +3043,9 @@ void parse_config_line(char *line){
 	strncpy(disk_fn[dsk],tok,64);
 	printf("Using disk image %s for unit %d\n",tok,dsk);
       }
-    }    
+    }
   }
-  /* 
+  /*
   if(strcasecmp(tok,"disk_sph") == 0){
     // Disk geometry - sectors per head
     tok = strtok(NULL," \t\r\n");
@@ -3001,7 +3073,7 @@ void parse_config_line(char *line){
       sdu_rotary_switch = val;
       printf("SDU switch setting %d\n",sdu_rotary_switch);
     }
-  }  
+  }
 #ifdef BURR_BROWN
   if(strcasecmp(tok,"debug_target_mode") == 0){
     // Debug Target Mode
@@ -3018,7 +3090,7 @@ void parse_config_line(char *line){
     if(tok != NULL){
       strncpy(debug_target_host,tok,128);
       printf("Using Debug Target Hostname %s\n",debug_target_host);
-    }    
+    }
   }
 #endif
   if(strcasecmp(tok,"mouse_mode") == 0){
@@ -3144,7 +3216,7 @@ void parse_config_line(char *line){
 	printf("Video FPS less than 10 is not supported; Using 10.\n");
 	val = 10;
       }
-      video_fps = (5000000/val);
+      video_fps = (1000000/val);
       printf("Using %d for video rate (%d FPS)\r\n",video_fps,val);
     }
   }
@@ -3157,7 +3229,7 @@ void parse_config_line(char *line){
 	printf("Input FPS less than 10 is not supported; Using 10.\n");
 	val = 10;
       }
-      input_fps = (5000000/val);
+      input_fps = (1000000/val);
       printf("Using %d for input rate (%d FPS)\r\n",input_fps,val);
     }
   }
@@ -3288,12 +3360,12 @@ int yaml_lam_mapping_loop(yaml_parser_t *parser){
     case YAML_STREAM_START_EVENT:
     case YAML_DOCUMENT_START_EVENT:
       // printf("STREAM START\n");
-      printf("Unexpected stream/document start\n");      
+      printf("Unexpected stream/document start\n");
       break;
-    case YAML_STREAM_END_EVENT:      
+    case YAML_STREAM_END_EVENT:
     case YAML_DOCUMENT_END_EVENT:
       // printf("[End Document]\n");
-      printf("Unexpected stream/document end\n");      
+      printf("Unexpected stream/document end\n");
       break;
     case YAML_SEQUENCE_START_EVENT:
       printf("Unexpected sequence key: %s\n",key);
@@ -3310,7 +3382,7 @@ int yaml_lam_mapping_loop(yaml_parser_t *parser){
     case YAML_SEQUENCE_END_EVENT:
       printf("Unexpected sequence end\n");
       return(-1);
-      break;      
+      break;
     case YAML_MAPPING_END_EVENT:
       mapping_done = 1;
       break;
@@ -3375,7 +3447,7 @@ int yaml_lam_mapping_loop(yaml_parser_t *parser){
 	  case 115200:
 	    kbd_baudrate = B115200; break;
 	  case 230400:
-	    kbd_baudrate = B230400; break;	    
+	    kbd_baudrate = B230400; break;
 	  default:
 	    printf("Invalid physical keyboard baud rate.\n");
 	    return(-1);
@@ -3385,7 +3457,7 @@ int yaml_lam_mapping_loop(yaml_parser_t *parser){
 	}
 #endif
 	printf("lam: Unknown key %s (value %s)\n",key,value);
-	return(-1);	
+	return(-1);
 	// Done
       value_done:
 	key[0] = 0;
@@ -3393,7 +3465,7 @@ int yaml_lam_mapping_loop(yaml_parser_t *parser){
       }
       break;
     }
-    yaml_event_delete(&event);    
+    yaml_event_delete(&event);
   }
   return(0);
 }
@@ -3403,7 +3475,7 @@ int yaml_keyboard_sequence_loop(yaml_parser_t *parser){
   char value[128];
   yaml_event_t event;
   int sequence_done = 0;
-  int sval = 0, dval = 0;  
+  int sval = 0, dval = 0;
   key[0] = 0;
   value[0] = 0;
   while(sequence_done == 0){
@@ -3432,7 +3504,7 @@ int yaml_keyboard_sequence_loop(yaml_parser_t *parser){
     case YAML_SEQUENCE_START_EVENT:
       printf("Unexpected sequence start\n");
       return(-1);
-      break;      
+      break;
     case YAML_MAPPING_START_EVENT:
       // Map entry start. Reinitialize.
       sval = 0;
@@ -3445,7 +3517,7 @@ int yaml_keyboard_sequence_loop(yaml_parser_t *parser){
     case YAML_MAPPING_END_EVENT:
       // Map entry end. Do it.
       map_key(sval,dval);
-      printf("keyboard: Mapped SDL keycode %d to Lambda keycode 0%o\n",sval,dval);      
+      printf("keyboard: Mapped SDL keycode %d to Lambda keycode 0%o\n",sval,dval);
       break;
     case YAML_ALIAS_EVENT:
       printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
@@ -3503,12 +3575,12 @@ int yaml_keyboard_mapping_loop(yaml_parser_t *parser){
     case YAML_STREAM_START_EVENT:
     case YAML_DOCUMENT_START_EVENT:
       // printf("STREAM START\n");
-      printf("Unexpected stream/document start\n");      
+      printf("Unexpected stream/document start\n");
       break;
-    case YAML_STREAM_END_EVENT:      
+    case YAML_STREAM_END_EVENT:
     case YAML_DOCUMENT_END_EVENT:
       // printf("[End Document]\n");
-      printf("Unexpected stream/document end\n");      
+      printf("Unexpected stream/document end\n");
       break;
     case YAML_SEQUENCE_START_EVENT:
       if(strcmp(key,"mapping") == 0){
@@ -3529,7 +3601,7 @@ int yaml_keyboard_mapping_loop(yaml_parser_t *parser){
     case YAML_SEQUENCE_END_EVENT:
       printf("Unexpected sequence end\n");
       return(-1);
-      break;      
+      break;
     case YAML_MAPPING_END_EVENT:
       mapping_done = 1;
       break;
@@ -3564,13 +3636,13 @@ int yaml_keyboard_mapping_loop(yaml_parser_t *parser){
 	      printf("Input FPS less than 10 is not supported; Using 10.\n");
 	      val = 10;
 	    }
-	    input_fps = (5000000/val);
+	    input_fps = (1000000/val);
 	    printf("Using %d for input rate (%d FPS)\r\n",input_fps,val);
 	  }
 	  goto value_done;
 	}
 	if(strcmp(key,"map") == 0){
-	  if(value[0] != 0){	    
+	  if(value[0] != 0){
 	    int sval = atoi(value);
 	    char *tok = strtok(value," \r\n");
 	    if(tok != NULL){
@@ -3586,7 +3658,7 @@ int yaml_keyboard_mapping_loop(yaml_parser_t *parser){
 	  goto value_done;
 	}
 	printf("keyboard: Unknown key %s (value %s)\n",key,value);
-	return(-1);	
+	return(-1);
 	// Done
       value_done:
 	key[0] = 0;
@@ -3594,7 +3666,7 @@ int yaml_keyboard_mapping_loop(yaml_parser_t *parser){
       }
       break;
     }
-    yaml_event_delete(&event);    
+    yaml_event_delete(&event);
   }
   return(0);
 }
@@ -3653,13 +3725,13 @@ int yaml_video_mapping_loop(yaml_parser_t *parser){
 	if(strcmp(key,"pixel-on") == 0){
 	  uint32_t sval = strtol(value,NULL,16);
 	  pixel_on = sval;
-	  printf("pixel_on set to 0x%X\n", pixel_on);	  
+	  printf("pixel_on set to 0x%X\n", pixel_on);
 	  goto value_done;
 	}
 	if(strcmp(key,"pixel-off") == 0){
 	  uint32_t sval = strtol(value,NULL,16);
 	  pixel_off = sval;
-	  printf("pixel_off set to 0x%X\n", pixel_off);	  
+	  printf("pixel_off set to 0x%X\n", pixel_off);
 	  goto value_done;
 	}
 	if(strcmp(key,"video_fps") == 0){
@@ -3669,7 +3741,7 @@ int yaml_video_mapping_loop(yaml_parser_t *parser){
 	      printf("Video FPS less than 10 is not supported; Using 10.\n");
 	      val = 10;
 	    }
-	    video_fps = (5000000/val);
+	    video_fps = (1000000/val);
 	    printf("Using %d for video rate (%d FPS)\r\n",video_fps,val);
 	  }
 	  goto value_done;
@@ -3685,7 +3757,7 @@ int yaml_video_mapping_loop(yaml_parser_t *parser){
     }
     yaml_event_delete(&event);
   }
-  return(0); 
+  return(0);
 }
 
 int yaml_mouse_sequence_loop(yaml_parser_t *parser){
@@ -3694,7 +3766,7 @@ int yaml_mouse_sequence_loop(yaml_parser_t *parser){
   yaml_event_t event;
   int sequence_done = 0;
   int xloc=0,yloc=0,wakeloc=0,lambda=0;
-  
+
   key[0] = 0;
   value[0] = 0;
   while(sequence_done == 0){
@@ -3734,7 +3806,7 @@ int yaml_mouse_sequence_loop(yaml_parser_t *parser){
       break;
     case YAML_MAPPING_END_EVENT:
       // Map entry end. Do it.
-      if(lambda != 0){ lambda = 1; } 
+      if(lambda != 0){ lambda = 1; }
       mouse_x_loc[lambda] = xloc;
       mouse_y_loc[lambda] = yloc;
       mouse_wake_loc[lambda] = wakeloc;
@@ -3765,7 +3837,7 @@ int yaml_mouse_sequence_loop(yaml_parser_t *parser){
 	if(strcmp(key,"wake") == 0){
 	  wakeloc = strtol(value,NULL,8);
 	  goto value_done;
-	}	
+	}
         printf("mouse: Unknown key %s (value %s)\n",key,value);
 	return(-1);
 	// Done
@@ -3777,7 +3849,7 @@ int yaml_mouse_sequence_loop(yaml_parser_t *parser){
     }
     yaml_event_delete(&event);
   }
-  return(0);  
+  return(0);
 }
 
 int yaml_mouse_mapping_loop(yaml_parser_t *parser){
@@ -3868,7 +3940,7 @@ int yaml_mouse_mapping_loop(yaml_parser_t *parser){
     }
     yaml_event_delete(&event);
   }
-  return(0);  
+  return(0);
 }
 
 int yaml_log_mapping_loop(yaml_parser_t *parser){
@@ -3957,11 +4029,11 @@ int yaml_log_mapping_loop(yaml_parser_t *parser){
     }
     yaml_event_delete(&event);
   }
-  return(0);  
+  return(0);
 }
 
 int yaml_event_loop(yaml_parser_t *parser){
-  char key[128];  
+  char key[128];
   yaml_event_t event;
   int config_done = 0;
   int rv = 0;
@@ -4003,16 +4075,16 @@ int yaml_event_loop(yaml_parser_t *parser){
       if(strcmp(key,"mouse") == 0){
 	rv = yaml_mouse_sequence_loop(parser);
 	goto seq_done;
-      }      
+      }
       if(strcmp(key,"disk") == 0){
 	rv = yaml_disk_sequence_loop(parser);
 	goto seq_done;
-      }      
+      }
       printf("Unexpected sequence key: %s\n",key);
       return(-1);
     seq_done:
       if(rv < 0){ return(rv); }
-      strncpy(key,"root",128);      
+      strncpy(key,"root",128);
       break;
     case YAML_SEQUENCE_END_EVENT:
       // printf("[End Sequence]\n");
@@ -4057,8 +4129,8 @@ int yaml_event_loop(yaml_parser_t *parser){
       printf("Unexpected mapping key: %s\n",key);
       return(-1);
     map_done:
-      if(rv < 0){ return(rv); }      
-      strncpy(key,"root",128);      
+      if(rv < 0){ return(rv); }
+      strncpy(key,"root",128);
       break;
     case YAML_MAPPING_END_EVENT:
       // printf("[End Mapping]\n");
@@ -4075,7 +4147,7 @@ int yaml_event_loop(yaml_parser_t *parser){
 	printf("Unexpected value at root: %s\n", event.data.scalar.value);
 	return(-1);
       }
-      strncpy(key,(const char *)event.data.scalar.value,128);      
+      strncpy(key,(const char *)event.data.scalar.value,128);
       break;
     }
     yaml_event_delete(&event);
@@ -4086,11 +4158,11 @@ int yaml_event_loop(yaml_parser_t *parser){
 int handle_yaml_file(FILE *input){
   yaml_parser_t parser;
   int rv = 0;
-  
+
   if(!yaml_parser_initialize(&parser)){
     printf("handle_yaml_file(): Unable to initialize YAML parser\n");
     return(-1);
-  }      
+  }
   yaml_parser_set_input_file(&parser, input);
   rv = yaml_event_loop(&parser);
   // Done
@@ -4116,7 +4188,7 @@ void try_yaml_file(char *fn){
   FILE *config = fopen(fn,"r");
   if(config != NULL){
     // Do it
-    int rv = handle_yaml_file(config);    
+    int rv = handle_yaml_file(config);
     fclose(config);
     if(rv < 0){ exit(rv); }
   }
@@ -4128,7 +4200,7 @@ void try_yaml_buf(char *buf){
     if(rv < 0){
       exit(rv);
     }
-  }  
+  }
 }
 
 #endif
@@ -4139,15 +4211,18 @@ int bcount = 0; // Bus Cycle Counter
 int icount=0; // Main cycle counter
 
 // The Lambda and nubus are run at 5 MHz.
+/*
 void nubus_cycle(int sdu){
   if(bcount == 5){
     // Update microsecond clock if that's enabled (NB: AUX stat only!)
     if(pS[0].RG_Mode.Aux_Stat_Count_Control == 6){
       pS[0].stat_counter_aux++;
     }
+#ifdef CONFIG_2X2
     if(pS[1].RG_Mode.Aux_Stat_Count_Control == 6){
       pS[1].stat_counter_aux++;
     }
+#endif
     bcount = 0;
   }
   // Clock lambda
@@ -4155,7 +4230,7 @@ void nubus_cycle(int sdu){
 #ifdef CONFIG_2X2
   lambda_clockpulse(1);
 #endif
-  // Other devices go here  
+  // Other devices go here
   sdu_clock_pulse();
   // If the SDU isn't driving the clock pulse, clock stuff on the multibus too.
   if(sdu == 0){
@@ -4170,8 +4245,119 @@ void nubus_cycle(int sdu){
 #endif
   // Nubus signal maintenance goes last
   nubus_clock_pulse();
-  bcount++; // Count bus cycles  
+  bcount++; // Count bus cycles
   icount++; // Main cycle
+}
+*/
+
+/* Update the title bar */
+void update_stat_line(){
+  char statbuf[3][64];
+  char titlebuf[256];
+  // Update status line
+  extern char tape_fn[];
+  sprintf(statbuf[0],"LambdaDelta: VC %d | Tape: %s | ",active_console,tape_fn);
+  switch(cp_state[active_console]){
+  case 0: // Cold (or under 8088 control!)
+    if(pS[active_console].cpu_die_rq){
+      sprintf(statbuf[1],"Cold Halted");
+    }else{
+      sprintf(statbuf[1],"Cold Running");
+    }
+    break;
+  case 1: // Bootstrapping
+    if(pS[active_console].cpu_die_rq){
+      sprintf(statbuf[1],"Cold Halted");
+    }else{
+      sprintf(statbuf[1],"Cold Booting");
+    }
+    break;
+  case 2: // Lisp Booting
+    if(pS[active_console].cpu_die_rq){
+      sprintf(statbuf[1],"Lisp Boot Halted");
+    }else{
+      sprintf(statbuf[1],"Lisp Booting");
+    }
+    break;
+  case 3: // Lisp Running
+    if(pS[active_console].cpu_die_rq){
+      sprintf(statbuf[1],"Halted");
+    }else{
+      sprintf(statbuf[1],"Running");
+    }
+    break;
+  default: // ???
+    sprintf(statbuf[1],"Unknown State %d",cp_state[active_console]);
+    break;
+  }
+  //  sprintf(statbuf[2]," | DT %lld",(emu_time-real_time));
+  // On linux, a 64-bit number is a "long", not a "long long", so gcc complains.
+  sprintf(statbuf[2]," | DT %lld",(long long)pS[active_console].delta_time);
+  sprintf(titlebuf,"%s%s%s",statbuf[0],statbuf[1],statbuf[2]);
+#ifdef SDL1
+  SDL_WM_SetCaption(titlebuf, "LambdaDelta");
+#endif
+#ifdef SDL2
+  SDL_SetWindowTitle(SDLWindow, titlebuf);
+#endif
+}
+
+// ** VCMEM (CONSOLE) EXECUTION **
+// ** THIS MUST BE IN THE MAIN THREAD (BECAUSE SDL)! **
+// ** THIS IS ALSO THE ONLY PLACE WE CAN DO ANYTHING INVOLVING SDL (BECAUSE SDL) **
+
+void console_exec_loop(){
+  int time_since_vblank = 0;
+  int time_since_video_refresh = 0;
+  int time_since_input_refresh = 0;
+  int time_since_stat_refresh = 0;
+  struct timespec start_time,this_time,sleep_time;
+  uint64_t reference_time = 0;
+  uint64_t current_time = 0;
+  uint64_t interval_time = 0;
+  // Go
+  clock_gettime(CLOCK_MONOTONIC,&start_time); // Initialize
+  reference_time = (((uint64_t)start_time.tv_sec*1000000000)+start_time.tv_nsec);
+  sleep_time.tv_sec = 0;
+  sleep_time.tv_nsec = 16666667;
+  while(ld_die_rq == 0){
+    // This ran at 1MHz in the run loop.
+    // Now we want to run it at 60 FPS.
+    nanosleep(&sleep_time,NULL); // Attempt to sleep.
+    // How long did we make it?
+    clock_gettime(CLOCK_MONOTONIC,&this_time);
+    current_time = (((uint64_t)this_time.tv_sec*1000000000)+this_time.tv_nsec);
+    interval_time = (current_time-reference_time)/1000;
+    time_since_vblank += interval_time;
+    time_since_video_refresh += interval_time;
+    time_since_input_refresh += interval_time;
+    time_since_stat_refresh += interval_time;
+    // Drive vblank
+    if(time_since_vblank > 16667){
+      vcmem_vblank(0);
+#ifdef CONFIG_2X2
+      vcmem_vblank(1);
+#endif
+      time_since_vblank -= 16667;
+    }
+    if(time_since_video_refresh > video_fps){
+      sdl_refresh(1);
+      time_since_video_refresh -= video_fps;
+    }
+    if(time_since_input_refresh > input_fps){
+#ifdef CONFIG_PHYSKBD
+      sdu_kbd_clockpulse();
+#endif
+      sdl_refresh(0);
+      time_since_input_refresh -= input_fps;
+    }
+    if(time_since_stat_refresh > 1000000){
+      update_stat_line();
+      time_since_stat_refresh -= 1000000;
+    }
+    // Update time and loop
+    reference_time = current_time;
+  }
 }
 
 // Main
@@ -4179,13 +4365,13 @@ int main(int argc, char *argv[]){
 #ifndef HAVE_YAML_H
   FILE *config;
 #endif
-  
+
   // Initialize
   keyboard_io_ring_top[0] = keyboard_io_ring_top[1] = 0;
   keyboard_io_ring_bottom[0] = keyboard_io_ring_bottom[1] = 0;
   mouse_io_ring_top[0] = mouse_io_ring_top[1] = 0;
   mouse_io_ring_bottom[0] = mouse_io_ring_bottom[1] = 0;
-  printf("LambdaDelta\n");  
+  printf("LambdaDelta\n");
 
   // Clobber loglevels
   {
@@ -4195,7 +4381,7 @@ int main(int argc, char *argv[]){
       x++;
     }
   }
-  
+
   // Read default keymap
 #ifdef SDL1
   init_sdl_to_keysym_map();
@@ -4221,7 +4407,7 @@ int main(int argc, char *argv[]){
     }
   }
 #endif
-  
+
 #ifdef HAVE_YAML_H
   // Obtain site-wide YAML
 #ifdef SYSCONFDIR
@@ -4243,7 +4429,7 @@ int main(int argc, char *argv[]){
       usrconf[0] = 0;
       strncat(usrconf,homedir,127);
       strncat(usrconf,"/lam.yml",127);
-      try_yaml_file(usrconf);            
+      try_yaml_file(usrconf);
     }else{
       // Otherwise determine from UID
       uid_t user_id = getuid();
@@ -4264,19 +4450,19 @@ int main(int argc, char *argv[]){
 	usrconf[0] = 0;
 	strncat(usrconf,pw->pw_dir,127);
 	strncat(usrconf,"/lam.yml",127);
-	try_yaml_file(usrconf);      
-      }	     
+	try_yaml_file(usrconf);
+      }
     }
   }
   // Try current working directory
   try_yaml_file("lam.yml");
 #endif
-  
+
   // Handle command-line options
   if(argc > 1){
     int x = 1;
     while(x < argc){
-      
+
 #ifdef BURR_BROWN
       if(strcmp("-d",argv[x]) == 0){
 	debug_target_mode = 10;
@@ -4310,18 +4496,18 @@ int main(int argc, char *argv[]){
 	      try_yaml_buf(yamlbuf);
 	    }else{
 	      printf("lam: Can't parse key\n");
-	      exit(-1);	      
+	      exit(-1);
 	    }
 	  }else{
 	    printf("lam: Can't parse parameter\n");
-	    exit(-1);	    
+	    exit(-1);
 	  }
 	}else{
 	  printf("lam: Parameter value missing\n");
-	  exit(-1);	  
+	  exit(-1);
 	}
       }
-#endif      
+#endif
       if(strcmp("-?",argv[x]) == 0){
         printf("\nUsage: lam [OPTIONS]\n");
         printf("Valid options:\n");
@@ -4343,7 +4529,7 @@ int main(int argc, char *argv[]){
     exit(-1);
   }
   tapemaster_init();
-  
+
   read_sym_files();
 
   if(sdu_rotary_switch != 1){
@@ -4352,7 +4538,7 @@ int main(int argc, char *argv[]){
 #ifdef CONFIG_PHYSKBD
   sdu_kbd_init();
 #endif
-  
+
 #ifdef BURR_BROWN
   // Debug init
   debug_init();
@@ -4369,7 +4555,9 @@ int main(int argc, char *argv[]){
     printf("CLOCK STOPPED\n");
     SDU_state = -1; // Stop SDU from IPLing machine
     pS[0].cpu_die_rq = 1; // Stop clock
+#ifdef CONFIG_2X2
     pS[1].cpu_die_rq = 1; // Stop clock
+#endif
   }
 #else
 
@@ -4393,11 +4581,112 @@ int main(int argc, char *argv[]){
   if(sdu_rotary_switch == 0){
     // Wait here for telnet
     while(sdu_conn_fd < 0){
+      struct timespec sleep_time;
+      sleep_time.tv_sec = 0;
+      sleep_time.tv_nsec = 200;
       sdu_cons_clockpulse();
-      usleep(0);
+      nanosleep(&sleep_time,NULL);
     }
   }
-  
+
+  // Initialize mutexes
+  {
+    pthread_mutexattr_t mutex_attr;
+    pthread_mutexattr_init(&mutex_attr);
+    pthread_mutexattr_settype(&mutex_attr,PTHREAD_MUTEX_NORMAL); // POSIX says we should use PTHREAD_MUTEX_ERRORCHECK
+    if(pthread_mutex_init(&nubus_master_mutex, &mutex_attr) != 0){
+      printf("Unable to initialize nubus master mutex.\n");
+      return(-1);
+    }
+    if(pthread_mutex_init(&multibus_master_mutex, &mutex_attr) != 0){
+      printf("Unable to initialize multibus master mutex.\n");
+      return(-1);
+    }
+    // Also initialize Lambda cache write-check mutexes
+    if(pthread_mutex_init(&cache_wc_mutex[0], &mutex_attr) != 0){
+      printf("Unable to initialize Lambda 0 cache write-check mutex.\n");
+      return(-1);
+    }
+#ifdef CONFIG_2X2
+    if(pthread_mutex_init(&cache_wc_mutex[1], &mutex_attr) != 0){
+      printf("Unable to initialize Lambda 1 cache write-check mutex.\n");
+      return(-1);
+    }
+#endif
+  }
+
+  // Do SDL initialization so the vcmem doesn't get caught with its pants down.
+  sdl_refresh(1);
+
+  // Punt threads
+  {
+    int lamid[2] = {0,1};
+    int x = pthread_create(&sdu_thread_handle,NULL,&sdu_thread,NULL);
+    if(x != 0){
+      printf("Unable to start SDU thread: %s\n",strerror(x));
+      return(-1);
+    }
+    x = pthread_create(&smd_thread_handle,NULL,&smd_thread,NULL);
+    if(x != 0){
+      printf("Unable to start SMD thread: %s\n",strerror(x));
+      return(-1);
+    }
+    x = pthread_create(&enet_thread_handle,NULL,&enet_thread,NULL);
+    if(x != 0){
+      printf("Unable to start 3Com thread: %s\n",strerror(x));
+      return(-1);
+    }
+    x = pthread_create(&tm_thread_handle,NULL,&tm_thread,NULL);
+    if(x != 0){
+      printf("Unable to start Tapemaster thread: %s\n",strerror(x));
+      return(-1);
+    }
+    x = pthread_create(&lam_thread_handle[0],NULL,&lam_thread,&lamid[0]);
+    if(x != 0){
+      printf("Unable to start Lambda thread 0: %s\n",strerror(x));
+      return(-1);
+    }
+#ifdef CONFIG_2X2
+    x = pthread_create(&lam_thread_handle[0],NULL,&lam_thread,&lamid[1]);
+    if(x != 0){
+      printf("Unable to start Lambda thread 0: %s\n",strerror(x));
+      return(-1);
+    }
+#endif
+  }
+
+  // Run console loop.
+  console_exec_loop();
+
+  // If the exec loop returns, we are shutting down.
+  printf("Shutting down...\n");
+
+  // Wait for threads to die
+  printf("Terminating Lambda 0\n");
+  pthread_join(lam_thread_handle[0],NULL);
+#ifdef CONFIG_2X2
+  printf("Terminating Lambda 1\n");
+  pthread_join(lam_thread_handle[1],NULL);
+#endif
+  printf("Terminating SDU\n");
+  pthread_join(sdu_thread_handle,NULL);
+  printf("Terminating SMD\n");
+  pthread_join(smd_thread_handle,NULL);
+  printf("Terminating 3COM\n");
+  pthread_join(enet_thread_handle,NULL);
+  printf("Terminating Tapemaster\n");
+  pthread_join(tm_thread_handle,NULL);
+  // Done
+  printf("PTHREAD TEST: DONE\n");
+  pthread_mutex_destroy(&cache_wc_mutex[0]);
+#ifdef CONFIG_2X2
+  pthread_mutex_destroy(&cache_wc_mutex[1]);
+#endif
+  pthread_mutex_destroy(&multibus_master_mutex);
+  pthread_mutex_destroy(&nubus_master_mutex);
+
+  // Here is the old run loop...
+  /*
   while(ld_die_rq == 0){
     // New loop
     icount -= 500000; // Don't clobber extra cycles if they happened
@@ -4451,52 +4740,7 @@ int main(int argc, char *argv[]){
     }
     // Update status line
     if(stat_time > 9){
-      char statbuf[3][64];
-      char titlebuf[256];
-      // Update status line
-      extern char tape_fn[];
-      sprintf(statbuf[0],"LambdaDelta: VC %d | Tape: %s | ",active_console,tape_fn);
-      switch(cp_state[active_console]){
-      case 0: // Cold (or under 8088 control!)
-	if(pS[active_console].cpu_die_rq){
-	  sprintf(statbuf[1],"Cold Halted");
-	}else{
-	  sprintf(statbuf[1],"Cold Running");
-	}
-	break;
-      case 1: // Bootstrapping
-	if(pS[active_console].cpu_die_rq){
-	  sprintf(statbuf[1],"Cold Halted");
-	}else{
-	  sprintf(statbuf[1],"Cold Booting");
-	}
-	break;
-      case 2: // Lisp Booting
-	if(pS[active_console].cpu_die_rq){
-	  sprintf(statbuf[1],"Lisp Boot Halted");
-	}else{
-	  sprintf(statbuf[1],"Lisp Booting");
-	}
-	break;
-      case 3: // Lisp Running
-	if(pS[active_console].cpu_die_rq){
-	  sprintf(statbuf[1],"Halted");
-	}else{
-	  sprintf(statbuf[1],"Running");
-	}
-	break;
-      default: // ???
-	sprintf(statbuf[1],"Unknown State %d",cp_state[active_console]);
-	break;
-      }
-      sprintf(statbuf[2]," | DT %lld",(emu_time-real_time));
-      sprintf(titlebuf,"%s%s%s",statbuf[0],statbuf[1],statbuf[2]);
-#ifdef SDL1
-      SDL_WM_SetCaption(titlebuf, "LambdaDelta");
-#endif
-#ifdef SDL2
-      SDL_SetWindowTitle(SDLWindow, titlebuf);
-#endif
+      update_stat_line();
       stat_time = 0;
     }
     // Emulated time passed
@@ -4531,6 +4775,7 @@ int main(int argc, char *argv[]){
 #endif
 
   printf("Run completed\n");
+  */
   // sdl_cleanup() will write out NVRAM and terminate the process.
   // It will not return.
   sdl_cleanup();

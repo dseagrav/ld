@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
 
@@ -18,8 +18,10 @@
    along with LambdaDelta.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-/* Bus structures */
+/* Bus Master Mutexes */
+extern pthread_mutex_t nubus_master_mutex;
 
+/* Bus structures */
 typedef union rnuAddr {
   uint32_t raw;
   uint16_t hword[2];
@@ -34,7 +36,7 @@ typedef union rnuAddr {
   // For matching SDU mapping registers
   struct {
     uint32_t Offset:10;
-    uint32_t Page:22;    
+    uint32_t Page:22;
   } __attribute__((packed));
 } nuAddr;
 
@@ -52,15 +54,6 @@ typedef union rnuData {
 #define VM_BYTE_READ  0x02
 #define VM_BYTE_WRITE 0x03
 
-// BUS MASTER WORD IO
-#define NB_READ  0x10
-#define NB_WRITE 0x11
-// BUS MASTER BYTE IO
-#define NB_BYTE_READ  0x12
-#define NB_BYTE_WRITE 0x13
-
-/* NuBus card IDs */
-
 /* NUbus Interface */
 extern volatile int NUbus_error;
 extern volatile int NUbus_Busy;
@@ -68,9 +61,13 @@ extern volatile int NUbus_acknowledge;
 extern volatile int NUbus_master;
 extern volatile nuAddr NUbus_Address;
 extern volatile nuData NUbus_Data;
+extern volatile nuData NUbus_Block[4]; // HACK FOR BLOCK TRANSFERS
 extern volatile int NUbus_Request;
 extern volatile int NUbus_trace;
+
 /* Functions */
+void take_nubus_mastership();
+void release_nubus_mastership();
 void nubus_clock_pulse();
 void nubus_io_request(int access, int master, uint32_t address, uint32_t data);
-
+void nubus_xfer(int access, int master, uint32_t address, uint32_t data);

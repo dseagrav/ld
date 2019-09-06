@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
    Mike Chambers
@@ -19,8 +19,9 @@
    along with LambdaDelta.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <stdint.h>
 #include <stdio.h>
+#include <stdint.h>
+#include <pthread.h>
 
 #include "ld.h"
 #include "sdu.h"
@@ -111,7 +112,7 @@ void dump_hw_state(){
 	 regs.wordregs[regcx],regs.wordregs[regdx]);
   logmsgf(LT_SDU,0,"DS: 0x%.4X SI: 0x%.4X ES: 0x%.4X DI: 0x%.4X\n",
 	 segregs[regds], regs.wordregs[regsi],
-	 segregs[reges], regs.wordregs[regdi]);  
+	 segregs[reges], regs.wordregs[regdi]);
   logmsgf(LT_SDU,0,"CS: 0x%.4X IP: 0x%.4X\n",
 	 segregs[regcs], ip);
   logmsgf(LT_SDU,0,"SS: 0x%.4X SP: 0x%.4X BP: 0x%.4X\n",
@@ -121,7 +122,7 @@ void dump_hw_state(){
 				 (segbase(segregs[regss])+y));
     logmsgf(LT_SDU,0,"SP+%.2X (%.4X): 0x%.4X\n",x,(segbase(segregs[regss])+y),val);
     y += 2;
-    x++;	     
+    x++;
   }
 };
 
@@ -1205,7 +1206,7 @@ void intcall86 (uint8_t intnum) {
   push (segregs[regcs]);
   push (ip);
   segregs[regcs] = getmem16 (0, (uint16_t) intnum * 4 + 2);
-  if(dotrace == 1){ 
+  if(dotrace == 1){
     logmsgf(LT_SDU,10,"i8088: INTERRUPT %d\n",intnum);
     logmsgf(LT_SDU,10,"i8088: CS = %.4X ",segregs[regcs]);
   }
@@ -1256,7 +1257,7 @@ void i8086_clockpulse(){
   firstip = ip;
 
   while (!docontinue) {
-    segregs[regcs] = segregs[regcs] & 0xFFFF;    
+    segregs[regcs] = segregs[regcs] & 0xFFFF;
     ip = ip & 0xFFFF;
     savecs = segregs[regcs];
     saveip = ip;
@@ -1274,7 +1275,7 @@ void i8086_clockpulse(){
     if(dotrace == 1){ // || (segregs[regcs] != 0xFFFF && segregs[regcs] != 0xF000)){
       // dotrace = 1;
       logmsgf(LT_SDU,10,"i8088: CS:IP %.4X:%.4X = 0x%X\n",segregs[regcs],ip,opcode);
-    }    
+    }
     StepIP (1);
 
     switch (opcode) {
