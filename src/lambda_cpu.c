@@ -1629,17 +1629,9 @@ void handle_source(int I,int source_mode){
 void Age_Cache_Sectors(int I,int sector,int new){
   int x = 0;
   int age_above = pS[I].Cache_Sector_Age[sector];
-  // int oldest_age = 0;
   int sectors_aged = 0;
-  if(new == 1){
-    // logmsgf(LT_LAMBDA,3,"CACHE: AGER: ALLOCATING SECTOR %d, AGING SECTORS\n",sector);
-  }else{
-    if(age_above == 0){
-      // We are accessing the currently newest sector. We don't need to do anything.
-      return;
-    }
-    // logmsgf(LT_LAMBDA,3,"CACHE: AGER: ACCESSING SECTOR %d, AGING SECTORS NEWER THAN %d\n",sector,age_above);
-  }
+  // Do we need to do anything?
+  // if(new == 0 && age_above == 0){ return; } // We are aging the currently newest sector, so no.
   // Reset age of this sector (so 0 doesn't wrap around to 255)
   pS[I].Cache_Sector_Age[sector] = 0;
   // If we are aging all, skip all testing and just do it.
@@ -1889,16 +1881,8 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
 	  pS[I].Cache_Data[sector][y].word = 0;
 	  y++;
 	}
+	// We are aging sector 255, which is the same as allocating new
 	Age_Cache_Sectors(I,sector,0);
-	// Select the least-recently-used sector and evict it.
-	/*
-	sector = 0;
-	while(sector < 256){
-	  logmsgf(LT_LAMBDA,0,"SECTOR %d AGE %d\n",sector,pS[I].Cache_Sector_Age[sector]);
-	  sector++;
-	}
-	exit(-1);
-	*/
       }else{
 	// CACHE NOT FULL - We allocated a new sector.
 	// logmsgf(LT_LAMBDA,2,"CACHE: ALLOCATED SECTOR %d\n",sector);
@@ -1947,7 +1931,9 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
       // logmsgf(LT_LAMBDA,2,"CACHE: SECTOR HIT, SECTOR %d\n",sector);
       pS[I].Cache_Sector_Hit = 1;
       pS[I].Cache_Sector = sector;
-      Age_Cache_Sectors(I,sector,0);
+      if(pS[I].Cache_Sector_Age[sector] != 0){
+	Age_Cache_Sectors(I,sector,0);
+      }
       // Data hit?
       switch(pS[I].LCbus_Request){
       case VM_WRITE:
