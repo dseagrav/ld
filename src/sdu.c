@@ -3095,6 +3095,9 @@ void sdu_timer_cycle(){
 // Define this to have the SDU print timing loop statistics
 // #define SDU_SPEED_CHECK
 
+// The SDU now tracks delta time
+uint64_t sdu_delta_time = 0;
+
 // ** SDU EXECUTION THREAD **
 void *sdu_thread(void *arg __attribute__ ((unused))){
   int y=0;
@@ -3156,6 +3159,8 @@ void *sdu_thread(void *arg __attribute__ ((unused))){
 #endif
       sleeps = 0;
       delays = 0;
+      // Track delta time
+      sdu_delta_time = clock_skew/100000000;
       // If clock skew is positive, REAL TIME is ahead of RUN TIME, so we want to allow more RUN TIME.
       if(clock_skew > 10000){
         uint64_t clocks = (clock_skew/1000);

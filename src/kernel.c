@@ -288,10 +288,10 @@ struct lmkey {
 // Whether to honour SDL_QUIT event (generated e.g. by Command-Q on a Mac)
 int quit_on_sdl_quit = 1;
 
-// Throttle timers
-volatile uint64_t real_time = 0;
-volatile uint64_t emu_time = 0;
-volatile uint32_t stat_time = 20;
+// Old throttle timers
+// volatile uint64_t real_time = 0;
+// volatile uint64_t emu_time = 0;
+// volatile uint32_t stat_time = 20;
 
 // Framebuffer size
 #define DEFAULT_VIDEO_HEIGHT 800
@@ -1062,6 +1062,7 @@ void sdl_cleanup(void){
 }
 
 // Timer callback
+/*
 uint32_t sdl_timer_callback(uint32_t interval, void *param __attribute__ ((unused))){
   // Real time passed
   real_time++;
@@ -1070,6 +1071,7 @@ uint32_t sdl_timer_callback(uint32_t interval, void *param __attribute__ ((unuse
   // Return next interval
   return(interval);
 }
+*/
 
 int sdl_init(int width, int height){
   int i, j;
@@ -1354,7 +1356,7 @@ void kbd_handle_char(int scancode, int down){
       active_console ^= 1;
       printf("CONSW: %d\n",active_console);
       // Update window title
-      stat_time = 20;
+      // stat_time = 20;
       // Refresh display bitmap from stored image
       uint32_t *p = FrameBuffer;
       uint32_t *s = FB_Image[active_console];
@@ -1634,6 +1636,7 @@ static void sdl_cleanup(void){
 }
 
 // Timer callback
+/*
 uint32_t sdl_timer_callback(uint32_t interval, void *param __attribute__ ((unused))){
   // Real time passed
   real_time++;
@@ -1642,6 +1645,7 @@ uint32_t sdl_timer_callback(uint32_t interval, void *param __attribute__ ((unuse
   // Return next interval
   return(interval);
 }
+*/
 
 // New timer callback because SDL2's interval timer sucks
 // Gets called every 100000 microseconds (so 10 times a second)
@@ -2952,19 +2956,25 @@ void xbeep(int halfwavelength, int duration) {
 // Handle writes to keyboard control reg #5 to click/not (cf vcmem.c)
 void audio_control(int onoff,int console) {
   static int state[2] = {0,0};
-  static uint64_t toggle_time[2] = {0,0};
+  static uint64_t current_time,toggle_time[2] = {0,0};
+  struct timespec this_time;
 
   // Bail out if we haven't changed state
   if(onoff == state[console]){
     return;
   }
 
+  // Obtain time
+  clock_gettime(CLOCK_MONOTONIC,&this_time);
+  current_time = (((uint64_t)this_time.tv_sec*1000000000)+this_time.tv_nsec);
+
   // WE PROBABLY BROKE THIS WHEN WE STOPPED INCREMENTING real_time AND FRIENDS
-  printf("AC %d: NEW STATE %d\n",console,onoff);
-  
+  // In other news, xbeep eliminates getting here from lisp.
+  // printf("AC %d: NEW STATE %d\n",console,onoff);
+
   // this value seems to "work" for single beeps, and multiple beeps (around 4)
   // with default values for TV:BEEP-WAVELENGTH and TV:BEEP-DURATION,
-  if(onoff && (real_time > (toggle_time[console] + 1))){
+  if(onoff && (current_time > (uint64_t)(toggle_time[console] + 100000000))){
 #ifdef CONFIG_PHYSKBD
     logmsgf(LT_VCMEM,10,"NON-LISP BEEP\n");
     // xbeep(744,131072);
@@ -2973,7 +2983,7 @@ void audio_control(int onoff,int console) {
     logmsgf(LT_VCMEM,10,"BEEP\n");
     fflush(stdout);
 #endif
-    toggle_time[console] = real_time;
+    toggle_time[console] = current_time;
   }
   state[console] = onoff;
 }
@@ -4256,6 +4266,7 @@ void update_stat_line(){
   char titlebuf[256];
   // Update status line
   extern char tape_fn[];
+  extern uint64_t sdu_delta_time;
   sprintf(statbuf[0],"LambdaDelta: VC %d | Tape: %s | ",active_console,tape_fn);
   switch(cp_state[active_console]){
   case 0: // Cold (or under 8088 control!)
@@ -4292,7 +4303,7 @@ void update_stat_line(){
   }
   //  sprintf(statbuf[2]," | DT %lld",(emu_time-real_time));
   // On linux, a 64-bit number is a "long", not a "long long", so gcc complains.
-  sprintf(statbuf[2]," | DT %lld",(long long)pS[active_console].delta_time);
+  sprintf(statbuf[2]," | S-DT %lld | L-DT %lld",sdu_delta_time,(long long)pS[active_console].delta_time);
   sprintf(titlebuf,"%s%s%s",statbuf[0],statbuf[1],statbuf[2]);
 #ifdef SDL1
   SDL_WM_SetCaption(titlebuf, "LambdaDelta");
