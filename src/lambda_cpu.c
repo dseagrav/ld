@@ -68,7 +68,7 @@ ShadowMemoryPageEnt ShadowMemoryPageMap[0x20000];
 struct lambdaState pS[2];
 
 // Cache write-check status array
-uint8_t cache_wc_status[2][0x0FFFFFFF];
+uint16_t cache_wc_status[2][0x00FFFFFF];
 
 // Cache write-check mutexes
 pthread_mutex_t cache_wc_mutex[2] = {PTHREAD_MUTEX_INITIALIZER,PTHREAD_MUTEX_INITIALIZER};
@@ -786,7 +786,7 @@ void lambda_initialize(int I,int ID){
     pS[I].RG_Mode.NUbus_ID = (pS[I].NUbus_ID&0x0F);
     // Clobber cache
     x=0;
-    while(x < 0x10000000){
+    while(x < 0x1000000){
       cache_wc_status[0][x] = cache_wc_status[1][x] = 0;
       x++;
     }
@@ -1683,11 +1683,13 @@ void cache_write_check(int access, int I, uint32_t address, uint32_t data){
   // Is this in the cache?
   int sector = 0;
   uint32_t Sector_Addr = address&0xFFFFFFF0;
+  uint32_t WCStatus_Offset = ((address&0x0FFFFFF0)>>4);
   uint8_t Sector_Offset = (address&0xC)>>2;
-  // Bail if this sector isn't allocated somewhere.
-  if(cache_wc_status[I][(Sector_Addr&0xFFFFFFF0)>>4] == 0){ return; }
-  // Otherwise search for it.
-  while(sector < 256){
+  // If this sector is allocated...
+  while(cache_wc_status[I][WCStatus_Offset] != 0){
+    // Check its address
+    sector = (cache_wc_status[I][WCStatus_Offset]&0xFF);
+    // If it matched...
     if(pS[I].Cache_Sector_Addr[sector] == Sector_Addr){
       // HIT
       take_cache_wc(I);
@@ -1728,14 +1730,20 @@ void cache_write_check(int access, int I, uint32_t address, uint32_t data){
 	  exit(-1);
 	}
 	release_cache_wc(I);
+	return; // Bail out
       }else{
 	// We lost it.
 	logmsgf(LT_LAMBDA,2,"CACHE: WRITE CHECK HIT LOST BEFORE CACHE WC MUTEX COULD BE OBTAINED\n");
 	release_cache_wc(I);
-	sector = 0; continue; // Start over
+	continue; // Try again
       }
+    }else{
+      // We lost the match before we got here.
+      logmsgf(LT_LAMBDA,2,"CACHE: WRITE CHECK HIT LOST BEFORE FIRST TEST\n");
+      continue;
     }
-    sector++;
+    // We should not get here, but in case we do...
+    break;
   }
 }
 
@@ -1765,7 +1773,7 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
   if(pS[I].Cache_Permit != 0){
     int sector = 0;
     uint32_t Sector_Addr = pS[I].LCbus_Address.raw&0xFFFFFFF0;
-    uint32_t WCStatus_Offset = ((pS[I].LCbus_Address.raw&0xFFFFFFF0)>>4);
+    uint32_t WCStatus_Offset = ((pS[I].LCbus_Address.raw&0x0FFFFFF0)>>4);
     uint8_t Sector_Offset = (pS[I].LCbus_Address.raw&0xC)>>2;
     /*
     logmsgf(LT_LAMBDA,2,"CACHE: Request %o Addr 0x%X w/ data 0x%X\n",
@@ -1778,6 +1786,7 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
       sector = 256;
     }else{
       // Otherwise, where is it?
+      /*
       while(sector < 256){
 	if(pS[I].Cache_Sector_Addr[sector] == Sector_Addr){
 	  // FOUND IT
@@ -1785,6 +1794,8 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
 	}
 	sector++;
       }
+      */
+      sector = cache_wc_status[I][WCStatus_Offset]&0xFF;
     }
     if(sector == 256){
       // SECTOR MISS
@@ -1800,9 +1811,9 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
 	pS[I].Cache_Sector = sector;
 	// Rewrite address and invalidate data
 	take_cache_wc(I);
-	cache_wc_status[I][(uint32_t)((pS[I].Cache_Sector_Addr[sector]&0xFFFFFFF0)>>4)] = 0;
+	cache_wc_status[I][(uint32_t)((pS[I].Cache_Sector_Addr[sector]&0x0FFFFFF0)>>4)] = 0;
 	pS[I].Cache_Sector_Addr[sector] = Sector_Addr;
-	cache_wc_status[I][WCStatus_Offset] = 1;
+	cache_wc_status[I][WCStatus_Offset] = sector|0x100;
 	release_cache_wc(I);
 	while(y < 4){
 	  pS[I].Cache_Status[sector][y] = 0;
@@ -1815,7 +1826,7 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
 	sector = pS[I].Cache_Oldest_Sector;
 	pS[I].Cache_Oldest_Sector++;
 	take_cache_wc(I);
-	cache_wc_status[I][WCStatus_Offset] = 1;
+	cache_wc_status[I][WCStatus_Offset] = sector|0x100;
 	pS[I].Cache_Sector_Addr[sector] = Sector_Addr;
 	release_cache_wc(I);
 	pS[I].Cache_Sector_Age[sector] = 0; // New sector
