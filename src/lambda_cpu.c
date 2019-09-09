@@ -801,6 +801,7 @@ void lambda_initialize(int I,int ID){
       }
       x++;
     }
+    pS[I].Cache_Full = 0;
     // Let's experimentally reset bits in the LV1 and LV2 maps
     x=0;
     while(x < 4096){
@@ -1150,7 +1151,6 @@ void VM_resolve_address(int I,int access,int force){
   pS[I].Cache_Permit = pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Cache_Permit;
   pS[I].Packet_Code = pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packet_Code;
   pS[I].Packetize_Writes = pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packetize_Writes;
-  pS[I].Cache_Resolved = 0;
   pS[I].Cache_Sector_Hit = 0;
   pS[I].Cache_Sector = 0;
 
@@ -1684,7 +1684,7 @@ void cache_write_check(int access, int I, uint32_t address, uint32_t data){
   uint32_t Sector_Addr = address&0xFFFFFFF0;
   uint8_t Sector_Offset = (address&0xC)>>2;
   // Bail if this sector isn't allocated somewhere.
-  if(cache_wc_status[I][(Sector_Addr&0xFFFFFF00)>>8] == 0){ return; }
+  if(cache_wc_status[I][(Sector_Addr&0xFFFFFFF0)>>4] == 0){ return; }
   // Otherwise search for it.
   while(sector < 256){
     if(pS[I].Cache_Sector_Addr[sector] == Sector_Addr){
@@ -1764,39 +1764,32 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
   if(pS[I].Cache_Permit != 0){
     int sector = 0;
     uint32_t Sector_Addr = pS[I].LCbus_Address.raw&0xFFFFFFF0;
+    uint32_t WCStatus_Offset = ((pS[I].LCbus_Address.raw&0xFFFFFFF0)>>4);
     uint8_t Sector_Offset = (pS[I].LCbus_Address.raw&0xC)>>2;
     /*
     logmsgf(LT_LAMBDA,2,"CACHE: Request %o Addr 0x%X w/ data 0x%X\n",
 	    pS[I].LCbus_Request,pS[I].LCbus_Address.raw,pS[I].LCbus_Data.word);
     logmsgf(LT_LAMBDA,2,"CACHE: Packet Code %o, Packetize Writes %o\n",pS[I].Packet_Code,pS[I].Packetize_Writes);
     */
-    pS[I].Cache_Resolved = 1;
     // Is this in the cache already?
-    while(sector < 256){
-      if(pS[I].Cache_Sector_Addr[sector] == Sector_Addr){
-	// FOUND IT
-	break;
+    if(cache_wc_status[I][WCStatus_Offset] == 0){
+      // No, don't bother searching.
+      sector = 256;
+    }else{
+      // Otherwise, where is it?
+      while(sector < 256){
+	if(pS[I].Cache_Sector_Addr[sector] == Sector_Addr){
+	  // FOUND IT
+	  break;
+	}
+	sector++;
       }
-      sector++;
     }
     if(sector == 256){
       // SECTOR MISS
       // logmsgf(LT_LAMBDA,2,"CACHE: SECTOR MISS\n");
       // Find an open sector
-      sector = 0;
-      while(sector < 256){
-	if(pS[I].Cache_Sector_Addr[sector] == 0){
-	  // Found open sector. Take it.
-	  take_cache_wc(I);
-	  cache_wc_status[I][(Sector_Addr&0xFFFFFF00)>>8] = 1;
-	  pS[I].Cache_Sector_Addr[sector] = Sector_Addr;
-	  release_cache_wc(I);
-	  pS[I].Cache_Sector_Age[sector] = 0; // New sector
-	  break;
-	}
-	sector++;
-      }
-      if(sector == 256){
+      if(pS[I].Cache_Full == 1){
 	// CACHE FULL
 	int y = 0;
 	sector = pS[I].Cache_Oldest_Sector;
@@ -1806,27 +1799,37 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
 	pS[I].Cache_Sector = sector;
 	// Rewrite address and invalidate data
 	take_cache_wc(I);
-	cache_wc_status[I][(pS[I].Cache_Sector_Addr[sector]&0xFFFFFF00)>>8] = 0;
+	cache_wc_status[I][(uint32_t)((pS[I].Cache_Sector_Addr[sector]&0xFFFFFFF0)>>4)] = 0;
 	pS[I].Cache_Sector_Addr[sector] = Sector_Addr;
-	cache_wc_status[I][(Sector_Addr&0xFFFFFF00)>>8] = 1;
+	cache_wc_status[I][WCStatus_Offset] = 1;
 	release_cache_wc(I);
 	while(y < 4){
 	  pS[I].Cache_Status[sector][y] = 0;
 	  pS[I].Cache_Data[sector][y].word = 0;
 	  y++;
 	}
-	// We are aging sector 255, which is the same as allocating new
-	// Age_Cache_Sectors(I,sector,0);
-	Age_All_Cache_Sectors(I,sector);
       }else{
-	// CACHE NOT FULL - We allocated a new sector.
-	// logmsgf(LT_LAMBDA,2,"CACHE: ALLOCATED SECTOR %d\n",sector);
-	// This is now a sector hit
+	sector = 0;
+	while(sector < 256){
+	  if(pS[I].Cache_Sector_Addr[sector] == 0){
+	    // Found open sector. Take it.
+	    take_cache_wc(I);
+	    cache_wc_status[I][WCStatus_Offset] = 1;
+	    pS[I].Cache_Sector_Addr[sector] = Sector_Addr;
+	    release_cache_wc(I);
+	    pS[I].Cache_Sector_Age[sector] = 0; // New sector
+	    break;
+	  }
+	  sector++;
+	}
+	if(sector == 255){ pS[I].Cache_Full = 1; } // If we just allocated the last sector, we are full
+	// Set up hit
 	pS[I].Cache_Sector_Hit = 1;
 	pS[I].Cache_Sector = sector;
-	Age_All_Cache_Sectors(I,sector);
-	pS[I].Cache_Sector_Age[sector] = 0;
+	pS[I].Cache_Sector_Age[sector] = 0; // Ensure age is zero
       }
+      // We either allocated a new sector or aged the oldest sector, so age the whole cache.
+      Age_All_Cache_Sectors(I,sector);
       // Now handle the access.
       // If this is a word write, we can store directly
       switch(pS[I].LCbus_Request){

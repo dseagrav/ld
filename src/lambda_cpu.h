@@ -421,7 +421,7 @@ struct lambdaState {
   uint8_t Cache_Permit;             // Allow cache hit
   uint8_t Packetize_Writes;         // Write-through cache in block transfers
   uint8_t Packet_Code;              // Size of block transfer used
-  int Cache_Resolved;               // Did we look this up in cache?
+  int Cache_Full;                   // Set once the cache is full
   int Cache_Sector_Hit;             // Did we find it in a sector?
   int Cache_Sector;                 // What sector?
   int Cache_Oldest_Sector;          // Which sector is oldest? (For eviction purposes)
