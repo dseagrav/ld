@@ -133,7 +133,7 @@ int debugtrace_ptr[2] = { 0,0 };
 
 // Barrel Shifter
 void operate_shifter(int I){
-  uint32_t x=0;
+  // uint32_t x=0;
   uint32_t Mask = 0;
   int left_mask_index;
   int right_mask_index;
@@ -209,6 +209,7 @@ void operate_shifter(int I){
 
   // Merge A with R, using bits from R if the mask bit is 1
   pS[I].Obus = 0;
+  /*
   // Bottom cycle
   if((Mask&0x01) == 0x01){
     // Bit set, pull this one from R
@@ -229,7 +230,15 @@ void operate_shifter(int I){
       pS[I].Obus |= (pS[I].Abus&x);
     }
   }
-  // SAVE FOR LATER ABUSE
+  // Let's do this faster!
+  {
+    uint32_t Output = 0;
+  */
+  // Bits set in mask come from R
+  pS[I].Obus = R&Mask;
+  // Bits clear in mask come from A
+  pS[I].Obus |= pS[I].Abus&(~Mask);
+  // SAVE R FOR LATER ABUSE
   pS[I].Rbus = R;
   if(pS[I].microtrace){
     logmsgf(LT_LAMBDA,10,"SHIFTER: COMPLETED! O = 0x%X\n",pS[I].Obus);
