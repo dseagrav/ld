@@ -802,6 +802,7 @@ void lambda_initialize(int I,int ID){
       x++;
     }
     pS[I].Cache_Full = 0;
+    pS[I].Cache_Oldest_Sector = 0;
     // Let's experimentally reset bits in the LV1 and LV2 maps
     x=0;
     while(x < 4096){
@@ -1809,24 +1810,24 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
 	  y++;
 	}
       }else{
-	sector = 0;
-	while(sector < 256){
-	  if(pS[I].Cache_Sector_Addr[sector] == 0){
-	    // Found open sector. Take it.
-	    take_cache_wc(I);
-	    cache_wc_status[I][WCStatus_Offset] = 1;
-	    pS[I].Cache_Sector_Addr[sector] = Sector_Addr;
-	    release_cache_wc(I);
-	    pS[I].Cache_Sector_Age[sector] = 0; // New sector
-	    break;
-	  }
-	  sector++;
+	// CACHE NOT FULL
+	// For now, the oldest sector is simply the most recently allocated.
+	sector = pS[I].Cache_Oldest_Sector;
+	pS[I].Cache_Oldest_Sector++;
+	take_cache_wc(I);
+	cache_wc_status[I][WCStatus_Offset] = 1;
+	pS[I].Cache_Sector_Addr[sector] = Sector_Addr;
+	release_cache_wc(I);
+	pS[I].Cache_Sector_Age[sector] = 0; // New sector
+	// If we just allocated the last sector
+	if(sector == 255){
+	  // Cache is full, oldest sector is now sector 0.
+	  pS[I].Cache_Oldest_Sector = 0;
+	  pS[I].Cache_Full = 1;
 	}
-	if(sector == 255){ pS[I].Cache_Full = 1; } // If we just allocated the last sector, we are full
 	// Set up hit
 	pS[I].Cache_Sector_Hit = 1;
 	pS[I].Cache_Sector = sector;
-	pS[I].Cache_Sector_Age[sector] = 0; // Ensure age is zero
       }
       // We either allocated a new sector or aged the oldest sector, so age the whole cache.
       Age_All_Cache_Sectors(I,sector);
