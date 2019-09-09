@@ -1625,105 +1625,39 @@ void handle_source(int I,int source_mode){
   pS[I].MFObus = pS[I].Mbus;
 }
 
-// Age (other) cache sectors
-void Age_Cache_Sectors(int I,int sector,int new){
+/// Age all cache sectors
+void Age_All_Cache_Sectors(int I, int sector){
+  int x = 0;
+  while(x < 256){
+    pS[I].Cache_Sector_Age[x]++;
+    if(pS[I].Cache_Sector_Age[x] == 255 && x != sector){ pS[I].Cache_Oldest_Sector = x; }
+    x++;
+  }
+  pS[I].Cache_Sector_Age[sector] = 0;
+}
+
+// Age (other) cache sectors. We aren't aging the whole cache.
+void Age_Cache_Sectors(int I,int sector){
   int x = 0;
   int age_above = pS[I].Cache_Sector_Age[sector];
   int sectors_aged = 0;
-  // Do we need to do anything?
-  // if(new == 0 && age_above == 0){ return; } // We are aging the currently newest sector, so no.
-  // Reset age of this sector (so 0 doesn't wrap around to 255)
-  pS[I].Cache_Sector_Age[sector] = 0;
-  // If we are aging all, skip all testing and just do it.
-  if(new != 0 || age_above == 255){
-    while(x < 256){
-      pS[I].Cache_Sector_Age[x]++;
-      // We only update this when we are aging the last sector (or aging all)
-      if(pS[I].Cache_Sector_Age[x] == 255){ pS[I].Cache_Oldest_Sector = x; }
-      x++;
-    }
-    // Re-reset age of this sector
-    pS[I].Cache_Sector_Age[sector] = 0;
-    /*
-    if(age_above == 255){
-      printf("AGED ALL SECTORS: OLDEST IS %d\n",pS[I].Cache_Oldest_Sector);
-      logmsgf(LT_LAMBDA,0,"CACHE: DUMPING SECTOR AGES AND HALTING\n");
-      sector = 0;
-      while(sector < 256){
-	logmsgf(LT_LAMBDA,0,"CACHE: SECTOR %d AGE %d\n",sector,pS[I].Cache_Sector_Age[sector]);
-	sector++;
-      }
-      exit(-1);
-    }
-    */
-    // Done
-    return;
-  }
-  // Otherwise
-  // We aren't aging the oldest sector, and we aren't allocating a new sector.
-  // loop sectors.
+  // Loop sectors.
   while(x < 256){
-    // If this isn't our sector
-    // if(x != sector){
-      // and it's newer than or equal to the age of what we accessed, age it.
-      // unless we just allocated a new sector, in which case age everything.
-      if(pS[I].Cache_Sector_Age[x] <= age_above){
-        // logmsgf(LT_LAMBDA,3,"CACHE: AGING SECTOR %d: %d -> %d\n",x,pS[I].Cache_Sector_Age[x],pS[I].Cache_Sector_Age[x]+1);
-	sectors_aged++;
-        pS[I].Cache_Sector_Age[x]++;
-      }else{
-        // logmsgf(LT_LAMBDA,3,"CACHE:       SECTOR %d: %d\n",x,pS[I].Cache_Sector_Age[x]);
+    // If this sector is newer than ours, age it.
+    if(pS[I].Cache_Sector_Age[x] <= age_above){
+      // logmsgf(LT_LAMBDA,3,"CACHE: AGING SECTOR %d: %d -> %d\n",x,pS[I].Cache_Sector_Age[x],pS[I].Cache_Sector_Age[x]+1);
+      pS[I].Cache_Sector_Age[x]++;
+      sectors_aged++;
+      // Are we done?
+      if(sectors_aged == age_above+1){
+	// Reset age of our sector
+	pS[I].Cache_Sector_Age[sector] = 0;
+	// We are done!
+	return;
       }
-      /*
-      // Keep track of sector aged 255
-      // This won't be valid before the cache is filled.
-      if(pS[I].Cache_Sector_Age[x] == 255){
-	pS[I].Cache_Oldest_Sector = x;
-      }
-      */
-      /*
-      // If it's now older than the oldest thing we've seen so far
-      if(pS[I].Cache_Sector_Age[x] > oldest_age){
-	// Update the oldest age.
-        oldest_age = pS[I].Cache_Sector_Age[x];
-        pS[I].Cache_Oldest_Sector = x;
-      }
-      */
-      // }
-    if(sectors_aged == age_above+1){
-      // Re-reset age of this sector
-      pS[I].Cache_Sector_Age[sector] = 0;
-      // We are done!
-      // logmsgf(LT_LAMBDA,3,"CACHE: ALL REQUIRED SECTORS AGED\n");
-      // If we didn't reach the previous oldest age, leave the stats alone.
-      break;
     }
     x++;
   }
-  /*
-  if(new == 0 && sectors_aged != age_above){
-    logmsgf(LT_LAMBDA,0,"CACHE: AGED %d OUT OF %d SECTORS!\n",sectors_aged,age_above);
-    logmsgf(LT_LAMBDA,0,"CACHE: DUMPING SECTOR AGES AND HALTING\n");
-    sector = 0;
-    while(sector < 256){
-      logmsgf(LT_LAMBDA,0,"CACHE: SECTOR %d AGE %d\n",sector,pS[I].Cache_Sector_Age[sector]);
-      sector++;
-    }
-    exit(-1);
-  }
-  */
-  // logmsgf(LT_LAMBDA,3,"CACHE: OLDEST SECTOR AGE IS %d\n",oldest_age);
-  /*
-  if(age_above > 0){
-    logmsgf(LT_LAMBDA,0,"CACHE: DUMPING SECTOR AGES AND HALTING\n");
-    sector = 0;
-    while(sector < 256){
-      logmsgf(LT_LAMBDA,0,"CACHE: SECTOR %d AGE %d\n",sector,pS[I].Cache_Sector_Age[sector]);
-      sector++;
-    }
-    exit(-1);
-  }
-  */
 }
 
 // Take and release cache write-check mutex
@@ -1882,14 +1816,16 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
 	  y++;
 	}
 	// We are aging sector 255, which is the same as allocating new
-	Age_Cache_Sectors(I,sector,0);
+	// Age_Cache_Sectors(I,sector,0);
+	Age_All_Cache_Sectors(I,sector);
       }else{
 	// CACHE NOT FULL - We allocated a new sector.
 	// logmsgf(LT_LAMBDA,2,"CACHE: ALLOCATED SECTOR %d\n",sector);
 	// This is now a sector hit
 	pS[I].Cache_Sector_Hit = 1;
 	pS[I].Cache_Sector = sector;
-	Age_Cache_Sectors(I,sector,1);
+	Age_All_Cache_Sectors(I,sector);
+	pS[I].Cache_Sector_Age[sector] = 0;
       }
       // Now handle the access.
       // If this is a word write, we can store directly
@@ -1931,8 +1867,16 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
       // logmsgf(LT_LAMBDA,2,"CACHE: SECTOR HIT, SECTOR %d\n",sector);
       pS[I].Cache_Sector_Hit = 1;
       pS[I].Cache_Sector = sector;
+      // Are we aging it?
       if(pS[I].Cache_Sector_Age[sector] != 0){
-	Age_Cache_Sectors(I,sector,0);
+	// Yes. Does it happen to be the oldest sector?
+	if(pS[I].Cache_Sector_Age[sector] == 255){
+	  // Yes
+	  Age_All_Cache_Sectors(I,sector);
+	}else{
+	  // Otherwise do conditional aging.
+	  Age_Cache_Sectors(I,sector);
+	}
       }
       // Data hit?
       switch(pS[I].LCbus_Request){
