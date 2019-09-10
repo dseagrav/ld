@@ -1636,18 +1636,24 @@ void handle_source(int I,int source_mode){
   pS[I].MFObus = pS[I].Mbus;
 }
 
-/// Age all cache sectors
+// Age all cache sectors
+// Vectorization wasn't particularly useful here and is generally disabled with -Og anyway.
 void Age_All_Cache_Sectors(int I, int sector){
   int x = 0;
+  // Ensure our sector doesn't become 255, to save one test inside the loop.
+  pS[I].Cache_Sector_Age[sector] = 0;
+  // Age all sectors, tracking the oldest.
   while(x < 256){
     pS[I].Cache_Sector_Age[x]++;
-    if(pS[I].Cache_Sector_Age[x] == 255 && x != sector){ pS[I].Cache_Oldest_Sector = x; }
+    if(pS[I].Cache_Sector_Age[x] == 255){ pS[I].Cache_Oldest_Sector = x; }
     x++;
   }
+  // Reset our sector's age to zero.
   pS[I].Cache_Sector_Age[sector] = 0;
 }
 
-// Age (other) cache sectors. We aren't aging the whole cache.
+// Age cache sectors newer than ours.
+// We aren't aging the whole cache, and we aren't aging the oldest sector.
 void Age_Cache_Sectors(int I,int sector){
   int x = 0;
   int age_above = pS[I].Cache_Sector_Age[sector];
@@ -1659,7 +1665,7 @@ void Age_Cache_Sectors(int I,int sector){
       // logmsgf(LT_LAMBDA,3,"CACHE: AGING SECTOR %d: %d -> %d\n",x,pS[I].Cache_Sector_Age[x],pS[I].Cache_Sector_Age[x]+1);
       pS[I].Cache_Sector_Age[x]++;
       sectors_aged++;
-      // Are we done?
+      // If we aged our sector and everything newer, we are done.
       if(sectors_aged == age_above+1){
 	// Reset age of our sector
 	pS[I].Cache_Sector_Age[sector] = 0;
