@@ -1330,7 +1330,10 @@ void handle_source(int I,int source_mode){
   // Handle A Bus Input
   pS[I].Abus = pS[I].Amemory[pS[I].Iregister.ASource];
   // Handle M Bus Input
-  if(pS[I].Iregister.MSource > 077){
+  if(pS[I].Iregister.MSource < 0100){
+    pS[I].MFObus = pS[I].Mbus = pS[I].Mmemory[pS[I].Iregister.MSource];
+    return;
+  }else{
     switch(pS[I].Iregister.MSource){
     case 0100: // LAM-M-SRC-INTERRUPT-POINTER
       pS[I].Mbus = pS[I].InterruptVector;
@@ -1629,11 +1632,10 @@ void handle_source(int I,int source_mode){
       logmsgf(LT_LAMBDA,0,"Unknown MF-Source %o\n",pS[I].Iregister.MSource);
       pS[I].cpu_die_rq = 1;
     }
-  }else{
-    pS[I].Mbus = pS[I].Mmemory[pS[I].Iregister.MSource];
+    // Load MFO bus from M bus (for source cycle)
+    pS[I].MFObus = pS[I].Mbus;
+    return;
   }
-  // Done! Load MFO bus from M bus (for source cycle)
-  pS[I].MFObus = pS[I].Mbus;
 }
 
 // Age all cache sectors
