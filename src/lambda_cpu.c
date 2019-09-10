@@ -1325,6 +1325,7 @@ void VM_resolve_address(int I,int access,int force){
 }
 
 // Source fetch handling
+// source_mode is 1 if we are being clocked by an IMOD write.
 void handle_source(int I,int source_mode){
   // Handle A Bus Input
   pS[I].Abus = pS[I].Amemory[pS[I].Iregister.ASource];
@@ -4219,7 +4220,7 @@ void lambda_clockpulse(int I){
 
     if(pS[I].slow_dest == true){
       // Slow destination. Waste a cycle.
-      pS[I].stall_count++;
+      // pS[I].stall_count++;
       pS[I].slow_dest = false;
       if(pS[I].microtrace){
 	logmsgf(LT_LAMBDA,10,"SLOW-DEST cycle used\n");
@@ -4229,7 +4230,7 @@ void lambda_clockpulse(int I){
 
     if(pS[I].long_inst == true){
       // Long instruction. Waste a cycle.
-      pS[I].stall_count++;
+      // pS[I].stall_count++;
       pS[I].long_inst = false;
       if(pS[I].microtrace){
 	logmsgf(LT_LAMBDA,10,"LONG-INST cycle used\n");
@@ -4240,7 +4241,7 @@ void lambda_clockpulse(int I){
     if(pS[I].NOP_Next == true){
       // Inhibit bit set. Waste a cycle.
       pS[I].ConReg.nop = 0;
-      pS[I].stall_count++;
+      // pS[I].stall_count++;
       pS[I].NOP_Next = false;
       if(pS[I].microtrace){
 	logmsgf(LT_LAMBDA,10,"NOP-NEXT cycle used\n");
@@ -4252,7 +4253,7 @@ void lambda_clockpulse(int I){
 
     if(pS[I].cram_write_cyc == true){
       // CRAM or map write. Waste a cycle.
-      pS[I].stall_count++;
+      // pS[I].stall_count++;
       pS[I].cram_write_cyc = false;
       if(pS[I].microtrace){
 	logmsgf(LT_LAMBDA,10,"CRAM WRITE cycle used\n");
@@ -4533,7 +4534,7 @@ void lambda_clockpulse(int I){
 	logmsgf(LT_LAMBDA,10,"HAVE NUBUS MASTERSHIP...\n");
       }
       */
-      pS[I].stall_count++; // Track ticks burned
+      // pS[I].stall_count++; // Track ticks burned
       pS[I].exec_hold = true;
       return;
     }
@@ -4546,7 +4547,7 @@ void lambda_clockpulse(int I){
     if(pS[I].microtrace != 0){
       logmsgf(LT_LAMBDA,10,"LAMBDA: M-SRC-MD: Awaiting cycle completion...\n");
     }
-    pS[I].stall_count++; // Track ticks burned
+    // pS[I].stall_count++; // Track ticks burned
     pS[I].exec_hold = true;
     return;
   }

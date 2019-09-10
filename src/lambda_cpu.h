@@ -431,7 +431,7 @@ struct lambdaState {
 
   // Performance monitoring
   volatile unsigned long cycle_count;
-  volatile unsigned long stall_count;
+  // volatile unsigned long stall_count;
   volatile int64_t delta_time;
 };
 
