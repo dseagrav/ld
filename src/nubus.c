@@ -218,6 +218,7 @@ void nubus_clock_pulse(){
 // Put a request on the bus
 void nubus_io_request(int access, int master, uint32_t address, uint32_t data){
   // CONSISTENCY TEST
+  /*
   if(NUbus_Busy != 0){ // && NUbus_master != master){
     logmsgf(LT_NUBUS,0,"NUBUS ACCESS CLASH: Busy %d\n",NUbus_Busy);
     logmsgf(LT_NUBUS,0,"NUBUS: Active Request %o Addr 0x%X (0%o) w/ data 0x%X (0%o) by dev 0x%X\n",
@@ -226,6 +227,7 @@ void nubus_io_request(int access, int master, uint32_t address, uint32_t data){
 	   access,address,address,data,data,master);
     exit(-1);
   }
+  */
   // Issue Lambda cache write checks
   if((access&0x01) == 1){
     if(master != 0xF0){ cache_write_check(access,0,address,data); }
@@ -235,10 +237,12 @@ void nubus_io_request(int access, int master, uint32_t address, uint32_t data){
   NUbus_error = 0;
   NUbus_acknowledge = 0;
   // Log
+  /*
   if(NUbus_trace == 1){
     logmsgf(LT_NUBUS,10,"NUBUS: Request %o Addr 0x%X (0%o) w/ data 0x%X (0%o) by dev 0x%X\n",
 	   access,address,address,data,data,master);
   }
+  */
   // During the PROM run, it expects to read MD one instruction after the read request.
   NUbus_Busy = 3;
   NUbus_Address.raw = address;
