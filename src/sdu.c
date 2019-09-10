@@ -1131,11 +1131,13 @@ uint16_t multibus_word_read(mbAddr addr){
     // Obtain bus if we don't already have it
     take_nubus_mastership();
     // Place request on bus, lighting the low bit to indicate halfword-ness
-    nubus_io_request(VM_READ,0xFF,MNB_Addr.raw|1,0);
+    nubus_xfer(VM_READ,0xFF,MNB_Addr.raw|1,0);
+    /*
     // Await completion or error
     while(NUbus_Busy != 0 && NUbus_error == 0 && NUbus_acknowledge == 0){
       nubus_clock_pulse();
     }
+    */
     // What did we get?
     if(NUbus_error != 0){
       // Light bus error reg
@@ -1193,11 +1195,13 @@ uint8_t multibus_read(mbAddr addr){
     // Obtain bus if we don't already have it
     take_nubus_mastership();
     // Place request on bus
-    nubus_io_request(VM_BYTE_READ,0xFF,MNB_Addr.raw,0);
+    nubus_xfer(VM_BYTE_READ,0xFF,MNB_Addr.raw,0);
+    /*
     // Await completion or error
     while(NUbus_Busy != 0 && NUbus_error == 0 && NUbus_acknowledge == 0){
       nubus_clock_pulse();
     }
+    */
     // What did we get?
     if(NUbus_error != 0){
       // Light bus error reg
@@ -1472,11 +1476,13 @@ void multibus_word_write(mbAddr addr,uint16_t data){
     take_nubus_mastership();
     // Place request on bus
     Word <<= (8*MNB_Addr.Byte); // This won't work if the address isn't on a halfword boundary
-    nubus_io_request(VM_WRITE,0xFF,MNB_Addr.raw|1,Word);
+    nubus_xfer(VM_WRITE,0xFF,MNB_Addr.raw|1,Word);
+    /*
     // Await completion or error
     while(NUbus_Busy != 0 && NUbus_error == 0 && NUbus_acknowledge == 0){
       nubus_clock_pulse();
     }
+    */
     // What did we get?
     if(NUbus_error != 0){
       // Light bus error reg
@@ -1520,11 +1526,13 @@ void multibus_write(mbAddr addr,uint8_t data){
     take_nubus_mastership();
     // Place request on bus
     Word <<= (8*MNB_Addr.Byte);
-    nubus_io_request(VM_BYTE_WRITE,0xFF,MNB_Addr.raw,Word);
+    nubus_xfer(VM_BYTE_WRITE,0xFF,MNB_Addr.raw,Word);
+    /*
     // Await completion or error
     while(NUbus_Busy != 0 && NUbus_error == 0 && NUbus_acknowledge == 0){
       nubus_clock_pulse();
     }
+    */
     // What did we get?
     if(NUbus_error != 0){
       // Light bus error reg
