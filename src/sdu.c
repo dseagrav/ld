@@ -722,6 +722,8 @@ uint16_t evaluate_pic(int pic){
   uint8_t intr = 0;
   if(PIC[pic].State == 4){
     int x = 0x01,y = 0;
+    // If nothing changed, bail.
+    if(PIC[pic].IRQ == PIC[pic].Last_IRQ){ return(0); }
     // Perform edge detection
     while(x < 0x100){
       // Edge detected?
