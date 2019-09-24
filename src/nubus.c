@@ -112,11 +112,13 @@ void nubus_xfer(int access, int master, uint32_t address, uint32_t data){
     NUbus_Block[2].word = 0;
     NUbus_Block[3].word = 0;
   }
+#ifdef CONFIG_CACHE
   // Issue Lambda cache write checks
   if((access&0x01) == 1){
     if(master != 0xF0){ cache_write_check(access,0,address,data); }
     if(master != 0xF4){ cache_write_check(access,1,address,data); }
   }
+#endif
 
   // Drive the target card
   switch(NUbus_Address.Card){
@@ -231,11 +233,13 @@ void nubus_io_request(int access, int master, uint32_t address, uint32_t data){
     exit(-1);
   }
   */
+#ifdef CONFIG_CACHE
   // Issue Lambda cache write checks
   if((access&0x01) == 1){
     if(master != 0xF0){ cache_write_check(access,0,address,data); }
     if(master != 0xF4){ cache_write_check(access,1,address,data); }
   }
+#endif
   // Clear flags
   NUbus_error = 0;
   NUbus_acknowledge = 0;

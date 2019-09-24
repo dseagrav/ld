@@ -4615,6 +4615,7 @@ int main(int argc, char *argv[]){
       return(-1);
     }
     */
+#ifdef CONFIG_CACHE
     // Also initialize Lambda cache write-check mutexes
     if(pthread_mutex_init(&cache_wc_mutex[0], &mutex_attr) != 0){
       printf("Unable to initialize Lambda 0 cache write-check mutex.\n");
@@ -4625,6 +4626,7 @@ int main(int argc, char *argv[]){
       printf("Unable to initialize Lambda 1 cache write-check mutex.\n");
       return(-1);
     }
+#endif
 #endif
   }
 
@@ -4691,9 +4693,11 @@ int main(int argc, char *argv[]){
   pthread_join(tm_thread_handle,NULL);
   // Done
   printf("PTHREAD TEST: DONE\n");
+#ifdef CONFIG_CACHE
   pthread_mutex_destroy(&cache_wc_mutex[0]);
 #ifdef CONFIG_2X2
   pthread_mutex_destroy(&cache_wc_mutex[1]);
+#endif
 #endif
   // pthread_mutex_destroy(&multibus_master_mutex);
   pthread_mutex_destroy(&nubus_master_mutex);

@@ -67,11 +67,13 @@ ShadowMemoryPageEnt ShadowMemoryPageMap[0x20000];
 // Processor states
 struct lambdaState pS[2];
 
+#ifdef CONFIG_CACHE
 // Cache write-check status array
 uint16_t cache_wc_status[2][0x00FFFFFF];
 
 // Cache write-check mutexes
 pthread_mutex_t cache_wc_mutex[2] = {PTHREAD_MUTEX_INITIALIZER,PTHREAD_MUTEX_INITIALIZER};
+#endif
 
 #ifdef SHADOW
 // Shadow memory maintenance
@@ -793,6 +795,7 @@ void lambda_initialize(int I,int ID){
     // Set up slot assignments
     pS[I].NUbus_ID = ID;
     pS[I].RG_Mode.NUbus_ID = (pS[I].NUbus_ID&0x0F);
+#ifdef CONFIG_CACHE
     // Clobber cache
     x=0;
     while(x < 0x1000000){
@@ -812,6 +815,7 @@ void lambda_initialize(int I,int ID){
     }
     pS[I].Cache_Full = 0;
     pS[I].Cache_Oldest_Sector = 0;
+#endif
     // Let's experimentally reset bits in the LV1 and LV2 maps
     x=0;
     while(x < 4096){
@@ -1157,12 +1161,14 @@ void VM_resolve_address(int I,int access,int force){
   pS[I].vm_lv2_index.VPage_Offset = pS[I].VMAregister.VM.VPage_Offset;
   pS[I].vm_lv2_index.LV2_Block = pS[I].vm_lv1_map[pS[I].VMAregister.VM.VPage_Block].LV2_Block;
 
+#ifdef CONFIG_CACHE
   // Propagate cache stuff
   pS[I].Cache_Permit = pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Cache_Permit;
   pS[I].Packet_Code = pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packet_Code;
   pS[I].Packetize_Writes = pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packetize_Writes;
   pS[I].Cache_Sector_Hit = 0;
   pS[I].Cache_Sector = 0;
+#endif
 
   // Print LV2 data
   if(pS[I].microtrace){
@@ -1638,6 +1644,7 @@ void handle_source(int I,int source_mode){
   }
 }
 
+#ifdef CONFIG_CACHE
 // Age all cache sectors
 // Vectorization wasn't particularly useful here and is generally disabled with -Og anyway.
 void Age_All_Cache_Sectors(int I, int sector){
@@ -1764,10 +1771,13 @@ void cache_write_check(int access, int I, uint32_t address, uint32_t data){
     break;
   }
 }
+#endif
 
 // Local Bus Interface
 void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
+#ifdef CONFIG_CACHE
   int nubus_required = 1;
+#endif
   // Hrm...
   if(pS[I].SM_Clock_Pulse > 0){
     logmsgf(LT_LAMBDA,0,"LCBUS: DANGER WILL ROBINSON! LCBUS ACCESS IN SM CLOCK PULSE!\n");
@@ -1787,7 +1797,8 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
   pS[I].LCbus_Address.raw = address;
   pS[I].LCbus_Request = access;
   pS[I].LCbus_Data.word = data;
-  // CACHE TEST GOES HERE
+#ifdef CONFIG_CACHE
+  // CACHE TEST
   if(pS[I].Cache_Permit != 0){
     int sector = 0;
     uint32_t Sector_Addr = pS[I].LCbus_Address.raw&0xFFFFFFF0;
@@ -1978,7 +1989,9 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
       }
     }
     return;
+    // End of cache test
   }
+#endif
   maybe_take_nubus_mastership(I);
   nubus_io_request(access,pS[I].NUbus_ID,address,data);
 }
@@ -4063,13 +4076,16 @@ void lambda_clockpulse(int I){
       pS[I].LCbus_Address = NUbus_Address;
       pS[I].LCbus_Data = NUbus_Data;
       pS[I].LCbus_Request = NUbus_Request;
+#ifdef CONFIG_CACHE
       if((pS[I].LCbus_Address.raw&0x03) == 0x2){
 	pS[I].LCbus_Block[0] = NUbus_Block[0];
 	pS[I].LCbus_Block[1] = NUbus_Block[1];
 	pS[I].LCbus_Block[2] = NUbus_Block[2];
 	pS[I].LCbus_Block[3] = NUbus_Block[3];
       }
+#endif
     }else{
+#ifdef CONFIG_CACHE
       // We are not the bus master. This must be a cache hit!
       // First, put data on the bus...
       uint8_t Sector_Offset = (pS[I].LCbus_Address.raw&0xC)>>2;
@@ -4104,12 +4120,14 @@ void lambda_clockpulse(int I){
       // Count down busy
       pS[I].LCbus_Busy--;
       // logmsgf(LT_LAMBDA,2,"LCBUS: BUSY %d\n",pS[I].LCbus_Busy);
+#endif
     }
     // Is this a read?
     if((pS[I].LCbus_Request&0x01)==0){
       // Since this is our read request, reload MD here.
       // Since Lambda doesn't handle timeouts, I guess this happens regardless of acknowledge?
       pS[I].MDregister.raw = pS[I].LCbus_Data.word;
+#ifdef CONFIG_CACHE
       // Also update the cache if this is a read through and the read ack'd
       if(pS[I].NUbus_Master == 1 && pS[I].Cache_Permit != 0 && pS[I].Cache_Sector_Hit == 1 && pS[I].LCbus_acknowledge == 1){
 	uint8_t Sector_Offset = (pS[I].LCbus_Address.raw&0xF)>>2;
@@ -4157,6 +4175,7 @@ void lambda_clockpulse(int I){
 	  exit(-1);
 	}
       }
+#endif
     }
     // Was it acknowledged?
     if(pS[I].LCbus_acknowledge == 1){
