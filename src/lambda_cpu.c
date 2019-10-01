@@ -1750,6 +1750,30 @@ void cache_write_check(int access, int I, uint32_t address, uint32_t data){
 	  }
 	  break;
 	case VM_BYTE_WRITE:
+	  // Hit when the newboot does INIT after lisp halts
+	  switch(address&0x03){
+	  case 0: // LOW
+	    pS[I].Cache_Data[sector][Sector_Offset].word &= 0xFFFFFF00;
+	    pS[I].Cache_Data[sector][Sector_Offset].word |= (data&0x000000FF);
+	    pS[I].Cache_Status[sector][Sector_Offset] |= 1;
+	    break;
+	  case 1: // MID LOW
+	    pS[I].Cache_Data[sector][Sector_Offset].word &= 0xFFFF00FF;
+	    pS[I].Cache_Data[sector][Sector_Offset].word |= (data&0x0000FF00);
+	    pS[I].Cache_Status[sector][Sector_Offset] |= 2;
+	    break;
+	  case 2: // MID HI
+	    pS[I].Cache_Data[sector][Sector_Offset].word &= 0xFF00FFFF;
+	    pS[I].Cache_Data[sector][Sector_Offset].word |= (data&0x00FF0000);
+	    pS[I].Cache_Status[sector][Sector_Offset] |= 4;
+	    break;
+	  case 3: // HI
+	    pS[I].Cache_Data[sector][Sector_Offset].word &= 0x00FFFFFF;
+	    pS[I].Cache_Data[sector][Sector_Offset].word |= (data&0xFF000000);
+	    pS[I].Cache_Status[sector][Sector_Offset] |= 8;
+	    break;
+	  }
+	  break;
 	default:
 	  logmsgf(LT_LAMBDA,0,"CACHE: WRITE CHECK HIT W/ UI OP %o\n",access);
 	  exit(-1);
