@@ -14,6 +14,25 @@
     - [Installing a New Machine](#installing-a-new-machine)
 
 <!-- markdown-toc end -->
+# LD-THREAD BRANCH WARNING
+
+This is the HIGHLY EXPERIMENTAL multi-threaded branch of LambdaDelta.
+It is not quite ready for public consumption yet. Expect misbehavior.
+Back up your disk images frequently.
+
+This version uses the Lambda's cache system to minimize contention
+for bus mastership. Ensure that the Lambda's configuration profile
+(set in the SDU "config" program) has cache enabled.
+
+Two versions of the cache system are provided:
+
+The default is the "Fast Cache" - If caching is permitted and the operation
+is a word read, the bus cycle is bypassed and values read directly from
+the memory array. All other cycles happen normally.
+
+Optionally, the full Lambda cache system can be used, but benchmarks on it
+indicate cache data maintenance costs more than the performance gained.
+
 # LAMBDADELTA
 
 LambdaDelta is an emulator of the LMI Lambda Lisp Machine. Its goal is to

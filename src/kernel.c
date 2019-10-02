@@ -1061,18 +1061,6 @@ void sdl_cleanup(void){
   SDL_Quit();
 }
 
-// Timer callback
-/*
-uint32_t sdl_timer_callback(uint32_t interval, void *param __attribute__ ((unused))){
-  // Real time passed
-  real_time++;
-  // Also increment status update counter
-  stat_time++;
-  // Return next interval
-  return(interval);
-}
-*/
-
 int sdl_init(int width, int height){
   int i, j;
 
@@ -1635,29 +1623,6 @@ static void sdl_cleanup(void){
   SDL_Quit();
 }
 
-// Timer callback
-/*
-uint32_t sdl_timer_callback(uint32_t interval, void *param __attribute__ ((unused))){
-  // Real time passed
-  real_time++;
-  // Also increment status update counter
-  stat_time++;
-  // Return next interval
-  return(interval);
-}
-*/
-
-// New timer callback because SDL2's interval timer sucks
-// Gets called every 100000 microseconds (so 10 times a second)
-/*
-static void itimer_callback(int signum __attribute__ ((unused))){
-  // Real time passed
-  real_time++;
-  // Also increment status update counter
-  stat_time++;
-}
-*/
-
 int sdl_init(int width, int height){
   int flags;
   int i,j;
@@ -1673,14 +1638,6 @@ int sdl_init(int width, int height){
   /* NOTE: we still want Ctrl-C to work - undo the SDL redirections */
   signal(SIGINT, SIG_DFL);
   signal(SIGQUIT, SIG_DFL);
-
-  // Capture SIGALRM for our callback
-  /*
-  sigact.sa_handler = itimer_callback;
-  sigemptyset(&sigact.sa_mask);
-  sigact.sa_flags = SA_RESTART; // Attempt to restart syscalls interrupted by this signal
-  sigaction(SIGALRM,&sigact,NULL);
-  */
 
   // Create window
   SDLWindow = SDL_CreateWindow("LambdaDelta",
@@ -1750,22 +1707,6 @@ int sdl_init(int width, int height){
     SDL_SetRelativeMouseMode(SDL_TRUE);
   }
   SDL_ShowCursor(SDL_DISABLE);
-
-  // Kick interval timer
-  /*
-  SDLTimer = SDL_AddTimer(100,sdl_timer_callback,NULL);
-  if(SDLTimer == 0){
-    fprintf(stderr,"Unable to start interval timer\n");
-    exit(-1);
-  }
-  */
-  /* Don't use the interval timer anymore
-  struct itimerval itv;
-  bzero((uint8_t *)&itv,sizeof(struct itimerval));
-  itv.it_interval.tv_usec = 100000;
-  itv.it_value.tv_usec = 100000;
-  setitimer(ITIMER_REAL,&itv,NULL);
-  */
 
   // Allow a screen saver to work
   SDL_EnableScreenSaver();
@@ -2967,10 +2908,6 @@ void audio_control(int onoff,int console) {
   // Obtain time
   clock_gettime(CLOCK_MONOTONIC,&this_time);
   current_time = (((uint64_t)this_time.tv_sec*1000000000)+this_time.tv_nsec);
-
-  // WE PROBABLY BROKE THIS WHEN WE STOPPED INCREMENTING real_time AND FRIENDS
-  // In other news, xbeep eliminates getting here from lisp.
-  // printf("AC %d: NEW STATE %d\n",console,onoff);
 
   // this value seems to "work" for single beeps, and multiple beeps (around 4)
   // with default values for TV:BEEP-WAVELENGTH and TV:BEEP-DURATION,
@@ -4220,46 +4157,6 @@ void try_yaml_buf(char *buf){
 int bcount = 0; // Bus Cycle Counter
 int icount=0; // Main cycle counter
 
-// The Lambda and nubus are run at 5 MHz.
-/*
-void nubus_cycle(int sdu){
-  if(bcount == 5){
-    // Update microsecond clock if that's enabled (NB: AUX stat only!)
-    if(pS[0].RG_Mode.Aux_Stat_Count_Control == 6){
-      pS[0].stat_counter_aux++;
-    }
-#ifdef CONFIG_2X2
-    if(pS[1].RG_Mode.Aux_Stat_Count_Control == 6){
-      pS[1].stat_counter_aux++;
-    }
-#endif
-    bcount = 0;
-  }
-  // Clock lambda
-  lambda_clockpulse(0);
-#ifdef CONFIG_2X2
-  lambda_clockpulse(1);
-#endif
-  // Other devices go here
-  sdu_clock_pulse();
-  // If the SDU isn't driving the clock pulse, clock stuff on the multibus too.
-  if(sdu == 0){
-    smd_clock_pulse();
-    tapemaster_clock_pulse();
-    enet_clock_pulse();
-  }
-  mem_clock_pulse();
-  vcmem_clock_pulse(0);
-#ifdef CONFIG_2X2
-  vcmem_clock_pulse(1);
-#endif
-  // Nubus signal maintenance goes last
-  nubus_clock_pulse();
-  bcount++; // Count bus cycles
-  icount++; // Main cycle
-}
-*/
-
 /* Update the title bar */
 void update_stat_line(){
   char statbuf[3][64];
@@ -4692,7 +4589,6 @@ int main(int argc, char *argv[]){
   printf("Terminating Tapemaster\n");
   pthread_join(tm_thread_handle,NULL);
   // Done
-  printf("PTHREAD TEST: DONE\n");
 #ifdef CONFIG_CACHE
   pthread_mutex_destroy(&cache_wc_mutex[0]);
 #ifdef CONFIG_2X2
@@ -4701,98 +4597,6 @@ int main(int argc, char *argv[]){
 #endif
   // pthread_mutex_destroy(&multibus_master_mutex);
   pthread_mutex_destroy(&nubus_master_mutex);
-
-  // Here is the old run loop...
-  /*
-  while(ld_die_rq == 0){
-    // New loop
-    icount -= 500000; // Don't clobber extra cycles if they happened
-    // Run for 1/10th of a second, or 100000 cycles
-    // The lambda runs at 5 MHz, so this loop has to run 5 times for each wall-clock cycle.
-    // icount gets incremented with each nubus cycle.
-    while(icount < 500000 && ld_die_rq == 0){
-      int x=0;
-      while(x < 5 && ld_die_rq == 0){
-#ifdef BURR_BROWN
-	// Clock debug interface
-        debug_clockpulse();
-#endif
-	if(x == 0){
-	  // The 8088 does more than one cycle worth of work in one tick,
-	  // so we clock it here. 1 MIPS was as fast as an 8088 got.
-	  // NB: This will cause nubus cycles if the 8088 has to wait for the bus!
-	  i8086_clockpulse();
-	}
-	// Step lambda and nubus (8088 might have already done this!)
-	nubus_cycle(0);
-	x++;
-      }
-      // NOTE THAT IN THE BEST CASE, ICOUNT WILL INCREMENT BY 5 HERE
-      // WITH HEAVY LAMBDA/SDU INTERACTION (DISK IO!), THIS CAN BE SEVERAL MULTIPLES OF 5!
-      // Clock input
-      if((icount%input_fps) < 30){
-	if(input_frame == 0){
-#ifdef CONFIG_PHYSKBD
-	  sdu_kbd_clockpulse();
-#endif
-	  sdl_refresh(0);
-	  input_frame = 1;
-	}
-      }else{
-	if(input_frame == 1){ input_frame = 0; }
-      }
-      // Clock video
-      if((icount%video_fps) < 30){
-	if(video_frame == 0){
-	  sdl_refresh(1);
-	  video_frame = 1;
-	}
-      }else{
-	if(video_frame == 1){ video_frame = 0; }
-      }
-    }
-    // Plumb SDU serial console (should probably happen in the input frame?)
-    if(sdu_rotary_switch != 1){
-      sdu_cons_clockpulse();
-    }
-    // Update status line
-    if(stat_time > 9){
-      update_stat_line();
-      stat_time = 0;
-    }
-    // Emulated time passed
-    emu_time++;
-    // Timer won't wrap for many years, so we don't have to care about that
-    // Are we ahead of real time?
-    if(emu_time > real_time){
-      // Yes, wait.
-      while(emu_time > real_time){
-	usleep(0); // Allow real time to pass
-      }
-    }
-    // Otherwise loop
-  }
-
-  // Save framebuffer image
-#ifdef BURR_BROWN
-  if(debug_target_mode < 10){
-    FB_dump(0);
-    FB_dump(1);
-  }
-
-  // Is there a debug target?
-  if(debug_conn_fd > 0){
-    // Kill target, sorry target
-    debug_tx_rq(0x08,0,0);
-    usleep(0);
-  }
-#else
-  FB_dump(0);
-  FB_dump(1);
-#endif
-
-  printf("Run completed\n");
-  */
   // sdl_cleanup() will write out NVRAM and terminate the process.
   // It will not return.
   sdl_cleanup();
