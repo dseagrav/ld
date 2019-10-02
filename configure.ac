@@ -158,8 +158,7 @@ AC_CHECK_FUNCS([atexit bzero inet_ntoa gethostbyname memset socket strcasecmp st
 AC_CHECK_FUNCS([gettimeofday clock_gettime  mkdir strerror strstr utime])
 
 # Check for POSIX Threads
-# Are CFLAGS *AND* LIBS really necessary?
-AC_CHECK_LIB(pthread, pthread_create, [CFLAGS="$CFLAGS -pthread" LIBS="$LIBS -pthread"])
+AC_CHECK_LIB(pthread, pthread_create, [LIBS="$LIBS -lpthread"])
 
 # Path propagation
 CFLAGS="$CFLAGS -DSYSCONFDIR=${sysconfdir}"
