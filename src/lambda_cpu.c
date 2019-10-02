@@ -1161,14 +1161,14 @@ void VM_resolve_address(int I,int access,int force){
   pS[I].vm_lv2_index.VPage_Offset = pS[I].VMAregister.VM.VPage_Offset;
   pS[I].vm_lv2_index.LV2_Block = pS[I].vm_lv1_map[pS[I].VMAregister.VM.VPage_Block].LV2_Block;
 
-#ifdef CONFIG_CACHE
+  // #ifdef CONFIG_CACHE
   // Propagate cache stuff
   pS[I].Cache_Permit = pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Cache_Permit;
   pS[I].Packet_Code = pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packet_Code;
   pS[I].Packetize_Writes = pS[I].vm_lv2_ctl[pS[I].vm_lv2_index.raw].Packetize_Writes;
   pS[I].Cache_Sector_Hit = 0;
   pS[I].Cache_Sector = 0;
-#endif
+  // #endif
 
   // Print LV2 data
   if(pS[I].microtrace){
@@ -1821,9 +1821,28 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
   pS[I].LCbus_Address.raw = address;
   pS[I].LCbus_Request = access;
   pS[I].LCbus_Data.word = data;
-#ifdef CONFIG_CACHE
+
   // CACHE TEST
   if(pS[I].Cache_Permit != 0){
+#ifndef CONFIG_CACHE
+    // FAST CACHE CODE
+    // Is this a word read?
+    if(pS[I].LCbus_Request == VM_READ){
+      // Reading RAM?
+      if(pS[I].LCbus_Address.Card == 0xF9 || pS[I].LCbus_Address.Card == 0xFA
+#ifdef CONFIG_2X2
+	 || pS[I].LCbus_Address.Card == 0xFD || pS[I].LCbus_Address.Card == 0xFE
+#endif
+	 ){
+	// Yes. Are we within RAM range?
+	if(pS[I].LCbus_Address.Addr <= 0x800000){
+	  // Yes!
+	  return; // No need to pass request to nubus.
+	}
+      }
+    }
+#endif
+#ifdef CONFIG_CACHE
     int sector = 0;
     uint32_t Sector_Addr = pS[I].LCbus_Address.raw&0xFFFFFFF0;
     uint32_t WCStatus_Offset = ((pS[I].LCbus_Address.raw&0x0FFFFFF0)>>4);
@@ -2013,9 +2032,9 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
       }
     }
     return;
+#endif
     // End of cache test
   }
-#endif
   maybe_take_nubus_mastership(I);
   nubus_io_request(access,pS[I].NUbus_ID,address,data);
 }
@@ -4109,6 +4128,46 @@ void lambda_clockpulse(int I){
       }
 #endif
     }else{
+#ifndef CONFIG_CACHE
+      // FAST CACHE MODE
+#ifdef CONFIG_2X2
+      extern uint8_t MEM_RAM[4][0x800000];
+#else
+      extern uint8_t MEM_RAM[2][0x800000];
+#endif
+      int Card = 0;
+      // Drive data lines
+      switch(pS[I].LCbus_Address.Card){
+      case 0xF9: // MEMORY 0
+	break; // Card already zero
+      case 0xFA: // MEMORY 1
+	Card = 1; break;
+#ifdef CONFIG_2X2
+      case 0xFD: // MEMORY 2
+	Card = 2; break;
+      case 0xFE: // MEMORY 3
+	Card = 3; break;
+#endif
+      default:
+	logmsgf(LT_LAMBDA,0,"FAST CACHE CYCLE: UI CARD: OP %o ADDR 0x%.8X\n",pS[I].LCbus_Request,pS[I].LCbus_Address.raw);
+	exit(-1);
+      }
+      switch(pS[I].LCbus_Address.Byte){
+      case 0: // WORD
+	pS[I].LCbus_Data.word = *(uint32_t *)(MEM_RAM[Card]+pS[I].LCbus_Address.Addr);
+	break;
+      case 1: // LOW HALF
+	pS[I].LCbus_Data.hword[0] = *(uint16_t *)(MEM_RAM[Card]+(pS[I].LCbus_Address.Addr-1));
+	break;
+      case 3: // HIGH HALF
+	pS[I].LCbus_Data.hword[1] = *(uint16_t *)(MEM_RAM[Card]+(pS[I].LCbus_Address.Addr-1));
+	break;
+      default:
+	logmsgf(LT_LAMBDA,0,"FAST CACHE CYCLE: UI TYPE: OP %o ADDR 0x%.8X\n",pS[I].LCbus_Request,pS[I].LCbus_Address.raw);
+	exit(-1);
+      }
+      // END OF FAST CACHE MODE
+#endif
 #ifdef CONFIG_CACHE
       // We are not the bus master. This must be a cache hit!
       // First, put data on the bus...
@@ -4138,13 +4197,13 @@ void lambda_clockpulse(int I){
 	logmsgf(LT_LAMBDA,0,"CACHE: HIT: UI OP %o\n",pS[I].LCbus_Request);
 	exit(-1);
       }
+#endif
       // Drive ack
       pS[I].LCbus_acknowledge = 1;
       pS[I].LCbus_error = 0; // Just in case
       // Count down busy
       pS[I].LCbus_Busy--;
       // logmsgf(LT_LAMBDA,2,"LCBUS: BUSY %d\n",pS[I].LCbus_Busy);
-#endif
     }
     // Is this a read?
     if((pS[I].LCbus_Request&0x01)==0){

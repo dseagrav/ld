@@ -35,9 +35,9 @@
 
 // Memory
 #ifdef CONFIG_2X2
-unsigned char MEM_RAM[4][RAM_TOP];
+uint8_t MEM_RAM[4][RAM_TOP];
 #else
-unsigned char MEM_RAM[2][RAM_TOP];
+uint8_t MEM_RAM[2][RAM_TOP];
 #endif
 // static uint8_t prom_string[0x12] = "LMI 8-MEGABYTE";
 uint8_t MEM_ROM[2048];
