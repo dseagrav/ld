@@ -32,6 +32,7 @@
 #include "nubus.h"
 #include "lambda_cpu.h"
 #include "mem.h"
+#include "vcmem.h"
 #include "sdu.h"
 #include "syms.h"
 
@@ -1826,17 +1827,30 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
   if(pS[I].Cache_Permit != 0){
 #ifndef CONFIG_CACHE
     // FAST CACHE CODE
-    // Is this a word read?
-    if(pS[I].LCbus_Request == VM_READ){
-      // Reading RAM?
-      if(pS[I].LCbus_Address.Card == 0xF9 || pS[I].LCbus_Address.Card == 0xFA
+    // Accessing RAM?
+    if(pS[I].LCbus_Address.Card == 0xF9 || pS[I].LCbus_Address.Card == 0xFA
 #ifdef CONFIG_2X2
-	 || pS[I].LCbus_Address.Card == 0xFD || pS[I].LCbus_Address.Card == 0xFE
+       || pS[I].LCbus_Address.Card == 0xFD || pS[I].LCbus_Address.Card == 0xFE
 #endif
-	 ){
-	// Yes. Are we within RAM range?
-	if(pS[I].LCbus_Address.Addr <= 0x800000){
-	  // Yes!
+       ){
+      // Yes. Are we within RAM range?
+      if(pS[I].LCbus_Address.Addr <= 0x800000){
+	// Yes! Is this a word read?
+	if(pS[I].LCbus_Request == VM_READ){
+	  return; // No need to pass request to nubus.
+	}
+      }
+    }
+    // Are we accessing VCMEM?
+    if(pS[I].LCbus_Address.Card == 0xF8
+#ifdef CONFIG_2X2
+       || pS[I].LCbus_Address.Card == 0xFC
+#endif
+       ){
+      // Yes! Within VRAM range?
+      if(pS[I].LCbus_Address.Addr >= 0x20000 && pS[I].LCbus_Address.Addr <= 0x3FFFF){
+	// Yes! Is this a word read?
+	if(pS[I].LCbus_Request == VM_READ){
 	  return; // No need to pass request to nubus.
 	}
       }
@@ -4130,41 +4144,76 @@ void lambda_clockpulse(int I){
     }else{
 #ifndef CONFIG_CACHE
       // FAST CACHE MODE
+      // For reads, fill data.
+      // For writes, do nothing.
+      if(pS[I].LCbus_Request == VM_READ){
+	// Word read operation
+	int Card = 0;
+	// Drive data lines
+	switch(pS[I].LCbus_Address.Card){
+	case 0xF8: // VCMEM 0
+	  Card = -2;
+	  break;
+	case 0xF9: // MEMORY 0
+	  break; // Card already zero
+	case 0xFA: // MEMORY 1
+	  Card = 1; break;
 #ifdef CONFIG_2X2
-      extern uint8_t MEM_RAM[4][0x800000];
+	case 0xFC: // VCMEM 1
+	  Card = -1;
+	  break;
+	case 0xFD: // MEMORY 2
+	  Card = 2; break;
+	case 0xFE: // MEMORY 3
+	  Card = 3; break;
+#endif
+	default:
+	  logmsgf(LT_LAMBDA,0,"FAST CACHE CYCLE: UI CARD: OP %o ADDR 0x%.8X\n",pS[I].LCbus_Request,pS[I].LCbus_Address.raw);
+	  exit(-1);
+	}
+	if(Card >= 0){
+#ifdef CONFIG_2X2
+	  extern uint8_t MEM_RAM[4][0x800000];
 #else
-      extern uint8_t MEM_RAM[2][0x800000];
+	  extern uint8_t MEM_RAM[2][0x800000];
 #endif
-      int Card = 0;
-      // Drive data lines
-      switch(pS[I].LCbus_Address.Card){
-      case 0xF9: // MEMORY 0
-	break; // Card already zero
-      case 0xFA: // MEMORY 1
-	Card = 1; break;
-#ifdef CONFIG_2X2
-      case 0xFD: // MEMORY 2
-	Card = 2; break;
-      case 0xFE: // MEMORY 3
-	Card = 3; break;
-#endif
-      default:
-	logmsgf(LT_LAMBDA,0,"FAST CACHE CYCLE: UI CARD: OP %o ADDR 0x%.8X\n",pS[I].LCbus_Request,pS[I].LCbus_Address.raw);
-	exit(-1);
-      }
-      switch(pS[I].LCbus_Address.Byte){
-      case 0: // WORD
-	pS[I].LCbus_Data.word = *(uint32_t *)(MEM_RAM[Card]+pS[I].LCbus_Address.Addr);
-	break;
-      case 1: // LOW HALF
-	pS[I].LCbus_Data.hword[0] = *(uint16_t *)(MEM_RAM[Card]+(pS[I].LCbus_Address.Addr-1));
-	break;
-      case 3: // HIGH HALF
-	pS[I].LCbus_Data.hword[1] = *(uint16_t *)(MEM_RAM[Card]+(pS[I].LCbus_Address.Addr-1));
-	break;
-      default:
-	logmsgf(LT_LAMBDA,0,"FAST CACHE CYCLE: UI TYPE: OP %o ADDR 0x%.8X\n",pS[I].LCbus_Request,pS[I].LCbus_Address.raw);
-	exit(-1);
+	  // RAM READ
+	  switch(pS[I].LCbus_Address.Byte){
+	  case 0: // WORD
+	    pS[I].LCbus_Data.word = *(uint32_t *)(MEM_RAM[Card]+pS[I].LCbus_Address.Addr);
+	    break;
+	  case 1: // LOW HALF
+	    pS[I].LCbus_Data.hword[0] = *(uint16_t *)(MEM_RAM[Card]+(pS[I].LCbus_Address.Addr-1));
+	    break;
+	  case 3: // HIGH HALF
+	    pS[I].LCbus_Data.hword[1] = *(uint16_t *)(MEM_RAM[Card]+(pS[I].LCbus_Address.Addr-1));
+	    break;
+	  default:
+	    logmsgf(LT_LAMBDA,0,"FAST CACHE CYCLE: UI MEM-RD TYPE: OP %o ADDR 0x%.8X\n",
+		    pS[I].LCbus_Request,pS[I].LCbus_Address.raw);
+	    exit(-1);
+	  }
+	}else{
+	  // VCMEM READ
+	  extern struct vcmemState vcS[2];
+	  uint32_t FBAddr = pS[I].LCbus_Address.Addr-0x20000;
+	  Card += 2;
+	  switch(pS[I].LCbus_Address.Byte){
+	  case 0: // WORD
+	    pS[I].LCbus_Data.word = *(uint32_t *)(vcS[Card].AMemory+FBAddr);
+	    break;
+	  case 1: // LOW HALF
+	    pS[I].LCbus_Data.hword[0] = *(uint16_t *)(vcS[Card].AMemory+(FBAddr-1));
+	    break;
+	  case 3: // HIGH HALF
+	    pS[I].LCbus_Data.hword[1] = *(uint16_t *)(vcS[Card].AMemory+(FBAddr-1));
+	    break;
+	  default:
+	    logmsgf(LT_LAMBDA,0,"FAST CACHE CYCLE: UI VCMEM-RD TYPE: OP %o ADDR 0x%.8X\n",
+		    pS[I].LCbus_Request,pS[I].LCbus_Address.raw);
+	    exit(-1);
+	  }
+	}
       }
       // END OF FAST CACHE MODE
 #endif
