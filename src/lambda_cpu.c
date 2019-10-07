@@ -1839,6 +1839,43 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
 	if(pS[I].LCbus_Request == VM_READ){
 	  return; // No need to pass request to nubus.
 	}
+	// Word write instead?
+	if(pS[I].LCbus_Request == VM_WRITE){
+	  // Yes, make it so.
+#ifdef CONFIG_2X2
+	  extern uint8_t MEM_RAM[4][0x800000];
+#else
+	  extern uint8_t MEM_RAM[2][0x800000];
+#endif
+	  int Card = 0;
+	  switch(pS[I].LCbus_Address.Card){
+	  case 0xF9: // MEMORY 0
+	    break; // Card already zero
+	  case 0xFA: // MEMORY 1
+	    Card = 1; break;
+#ifdef CONFIG_2X2
+	  case 0xFD: // MEMORY 2
+	    Card = 2; break;
+	  case 0xFE: // MEMORY 3
+	    Card = 3; break;
+#endif
+	  }
+	  // Do the write
+	  switch(pS[I].LCbus_Address.Byte){
+          case 0: // Full Word
+            *(uint32_t *)(MEM_RAM[Card]+pS[I].LCbus_Address.Addr) = pS[I].LCbus_Data.word;
+            break;
+
+          case 1: // Write low half
+            *(uint16_t *)(MEM_RAM[Card]+(pS[I].LCbus_Address.Addr-1)) = pS[I].LCbus_Data.hword[0];
+            break;
+
+          case 3: // Write high half
+            *(uint16_t *)(MEM_RAM[Card]+(pS[I].LCbus_Address.Addr-1)) = pS[I].LCbus_Data.hword[1];
+            break;
+          }
+	  return; // No need to pass request to nubus.
+	}
       }
     }
     // Are we accessing VCMEM?
@@ -1853,8 +1890,74 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
 	if(pS[I].LCbus_Request == VM_READ){
 	  return; // No need to pass request to nubus.
 	}
+	if(pS[I].LCbus_Request == VM_WRITE){
+	  extern struct vcmemState vcS[2];
+          uint32_t FBAddr = pS[I].LCbus_Address.Addr-0x20000;
+	  int vn = 0;
+	  if(pS[I].LCbus_Address.Card == 0xFC){ vn = 1; }
+	  // WORD WRITE
+	  switch(pS[I].LCbus_Address.Byte){
+	  case 0: // Full Word
+	    switch(vcS[vn].Function.Function){
+	    case 0: // XOR
+	      *(uint32_t *)(vcS[vn].AMemory+FBAddr) ^= pS[I].LCbus_Data.word;
+	      break;
+	    case 1: // OR
+	      *(uint32_t *)(vcS[vn].AMemory+FBAddr) |= pS[I].LCbus_Data.word;
+	      break;
+	    case 2: // AND
+	      *(uint32_t *)(vcS[vn].AMemory+FBAddr) &= ~pS[I].LCbus_Data.word;
+	      break;
+	    case 3: // STORE
+	      *(uint32_t *)(vcS[vn].AMemory+FBAddr) = pS[I].LCbus_Data.word;
+	      break;
+	    }
+	    framebuffer_update_word(vn,FBAddr,pS[I].LCbus_Data.word);
+	    return;
+
+	  case 1: // Write low half
+	    switch(vcS[vn].Function.Function){
+	    case 0: // XOR
+	      *(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) ^= pS[I].LCbus_Data.hword[0];
+	      break;
+	    case 1: // OR
+	      *(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) |= pS[I].LCbus_Data.hword[0];
+	      break;
+	    case 2: // AND
+	      *(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) &= ~pS[I].LCbus_Data.hword[0];
+	      break;
+	    case 3: // STORE
+	      *(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) = pS[I].LCbus_Data.hword[0];
+	      break;
+	    }
+	    framebuffer_update_hword(vn,FBAddr-1,pS[I].LCbus_Data.hword[0]);
+	    return;
+
+	  case 3: // Write high half
+	    switch(vcS[vn].Function.Function){
+	    case 0: // XOR
+	      *(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) ^= pS[I].LCbus_Data.hword[1];
+	      break;
+	    case 1: // OR
+	      *(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) |= pS[I].LCbus_Data.hword[1];
+	      break;
+	    case 2: // AND
+	      *(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) &= ~pS[I].LCbus_Data.hword[1];
+	      break;
+	    case 3: // STORE
+	      *(uint16_t *)(vcS[vn].AMemory+(FBAddr-1)) = pS[I].LCbus_Data.hword[1];
+	      break;
+	    }
+	    framebuffer_update_hword(vn,FBAddr-1,pS[I].LCbus_Data.hword[1]);
+	    return;
+	  }
+	  // SHOULD NOT GET HERE!
+	  logmsgf(LT_LAMBDA,2,"FAST-CACHE: VCMEM WRITE FELL THROUGH?\n");
+	  exit(-1);
+	}
       }
     }
+    // END OF FAST-CACHE BLOCK
 #endif
 #ifdef CONFIG_CACHE
     int sector = 0;
