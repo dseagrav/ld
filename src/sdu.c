@@ -1227,6 +1227,8 @@ uint8_t multibus_read(mbAddr addr){
     return(SDU_RAM[addr.raw]);
     break;
 
+    // 0x1c080 is the LED register; Reading it is undefined.
+
   case 0x1c084: // Switch Setting / Slot Number
     {
       // high four bits are slot number of SDU.
@@ -1256,24 +1258,46 @@ uint8_t multibus_read(mbAddr addr){
     }
     break;
 
-  case 0x1c088: // SDU CSR0
+  case 0x1c088: // SDU CSR1
     {
       uint8_t data = 0x00;
-      logmsgf(LT_SDU,10,"SDUCSR0 0x%X\n",data);
+      // BIT
+      // 0: QIC TAPE READY
+      // 1: SDU NUBUS RESET 
+      // 2: SDU MULTIBUS RESET
+      // 3: QIC RESET
+      // 4: QIC REQUEST
+      // 5: ENDCONV (FROM THE ADC, SEE BELOW)
+      // 6: QIC ONLINE
+      // 7: QIC TPXPT
+      logmsgf(LT_SDU,10,"SDU CSR1 0x%X\n",data);
       return(data);
     }
     break;
 
-  case 0x1c08c: // SDU CSR1
+  case 0x1c08c: // SDU CSR0
     {
       uint8_t data = 0;
       if(sdu_multibus_enable != 0){ data |= 0x01; }
       if(sdu_nubus_enable != 0){ data |= 0x02; }
-      logmsgf(LT_SDU,10,"SDUCSR1 0x%X\n",data);
+      // bit 2 = NUBUS TIME-OUT ENABLE
+      // bit 3,4 = CLOCK MARGIN SEL
+      // bit 5,6 = VOLTAGE MARGIN SEL
+      // bit 7 = NUBUS INTEGRITY (DEBUG) REGISTERS ENABLED
+      logmsgf(LT_SDU,10,"SDU CSR0 0x%X\n",data);
       return(data);
     }
     break;
 
+    // 0x1c100-1c11c: ANALOG/DIGITAL CONVERTER
+    // 8 analog channels, 0-5V in 256 steps.
+    // This was for SDU thermal sensors
+    // To hack a channel, write anything to it.
+    // When the ADC is finished, it will light ENDCONV
+    // When ENDCONV is lit, the data read is valid.
+    // Writing only SETS the channel we want to read:
+    // Any READ returns the data for the last selected channel.
+    
   case 0x1c120: // RTC Data Register
     {
       uint8_t RTC_Data = 0;
@@ -1370,10 +1394,19 @@ uint8_t multibus_read(mbAddr addr){
     break;
 
   case 0x1c180: // nubus timeout registeer
+    // TIMEOUTS MUST ONLY BE GENERATED WHEN ENABLED
     logmsgf(LT_NUBUS,10,"i8088: NUBUS TIMEOUT REG READ\n");
     return(nubus_timeout_reg);
     break;
 
+    // 0x1c1a8 - 0x1c1bc = BUS INTEGRITY REGISTERS (6 of them)
+    // REG 0 = AD00 - AD07
+    // REG 1 = AD08 - AD15
+    // REG 2 = AD16 - AD23
+    // REG 3 = AD24 - AD31
+    // REG 4 = ARB0 - ARB3, RQST, ACK, START, SPV
+    // REG 5 = SP, TM0, TM1, rest unused
+    
   case 0x1c1c0: // PIC #0 Cmd
     return(pic_read(0,0));
     break;
@@ -1555,12 +1588,12 @@ void multibus_write(mbAddr addr,uint8_t data){
   case 0x1c080: // Front Panel Lights
     // LEDs are RUN, SET UP, and ATTN.
     // 0 = on, 1 = off
-    // Bit 0 = RUN, 1 = SET UP, 2 = ATTN
+    // Bit 0 = RUN, 1 = SET UP, 2 = ATTN, 7 = AC POWER OFF(!) WHEN SET
     logmsgf(LT_SDU,10,"SDU: LIGHTS = 0x%X\n",data);
     break;
 
-  case 0x1c088: // SDU CSR0
-    logmsgf(LT_SDU,10,"SDU: WRITE CSR0 = 0x%X",data);
+  case 0x1c088: // SDU CSR1
+    logmsgf(LT_SDU,10,"SDU: WRITE CSR1 = 0x%X",data);
     if(data&0x08){
       // QIC tape reset
       logmsgf(LT_SDU,10," QIC-RESET");
@@ -1581,7 +1614,7 @@ void multibus_write(mbAddr addr,uint8_t data){
     logmsgf(LT_SDU,10,"\n");
     break;
 
-  case 0x1c08c: // SDU CSR1
+  case 0x1c08c: // SDU CSR0
     if(data&0x01){ sdu_multibus_enable = 1; }else{ sdu_multibus_enable = 0; } // MULTIBUS ENABLE
     if(data&0x02){ } // MULTIBUS->NUBUS CONVERTER ENABLE
     if(data&0x04){ sdu_nubus_enable = 1; }else{ sdu_nubus_enable = 0; } // NUBUS ENABLE
@@ -1592,7 +1625,7 @@ void multibus_write(mbAddr addr,uint8_t data){
     if(data&0x40){ } // VOLT LOW
     // VOLT HI + VOLT LO = VOLT NORM
     if(data&0x80){ ld_die_rq = 1; }
-    logmsgf(LT_SDU,10,"SDU: WRITE CSR1 = 0x%X\n",data);
+    logmsgf(LT_SDU,10,"SDU: WRITE CSR0 = 0x%X\n",data);
     break;
 
   case 0x1c120: // RTC Data Register
@@ -1924,7 +1957,10 @@ void sdu_clock_pulse(){
       // 0x030000 - 0x031FFF = 3Com ethernet
       // 0x040000 - 0x0EFFFF = DYNAMICALLY ALLOCATED MAPPED AREA (MAPPED TO NUBUS!)
       // 0x0F0000 - 0x0FFFFF = SDU ROM
-
+      // 0x100000 - 0x13FFFC = IO PORTS (BYTE ONLY)
+      // 0x140000 - 0x14FFFF = IO PORTS (ALL MODES)
+      // 0xFFDFFC            = CONF REG (BYTE ONLY)
+      // 0xFFE000 - 0xFFFFFC = CONF ROM (BYTE ONLY)
       switch(NUbus_Address.Addr){
       case 0x000000 ... 0x00FFFF: // SDU RAM
 	{
@@ -2988,7 +3024,7 @@ void sdu_clock_pulse(){
 	}
 	break;
 
-	// SDU does not have a config prom
+	// SDU does not have a config prom?
       case 0xFFF800 ... 0xFFF8FF:
       case 0xFFFF64 ... 0xFFFFFF:
 	if(NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ){
