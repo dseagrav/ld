@@ -1227,6 +1227,8 @@ uint8_t multibus_read(mbAddr addr){
     return(SDU_RAM[addr.raw]);
     break;
 
+    // ROM V102 attempts to read 0x10000
+
     // 0x1c080 is the LED register; Reading it is undefined.
 
   case 0x1c084: // Switch Setting / Slot Number
@@ -1406,7 +1408,7 @@ uint8_t multibus_read(mbAddr addr){
     // REG 3 = AD24 - AD31
     // REG 4 = ARB0 - ARB3, RQST, ACK, START, SPV
     // REG 5 = SP, TM0, TM1, rest unused
-    
+
   case 0x1c1c0: // PIC #0 Cmd
     return(pic_read(0,0));
     break;
@@ -1457,6 +1459,12 @@ uint8_t multibus_read(mbAddr addr){
     }
     break;
 
+  case 0x2fe00: // Don't know what this is, newboot tries to read it
+  case 0x2ff00: // Don't know what this is, newboot tries to read it
+    logmsgf(LT_MULTIBUS,9,"multibus_read: timeout for addr 0x%X\n",addr.raw);
+    PIC[0].IRQ |= 0x01;
+    return(0xFF);
+
   case 0x030000 ... 0x031FFF: // 3com Ethernet
     {
       uint16_t enet_addr = (addr.raw&0xFFFF);
@@ -1469,9 +1477,7 @@ uint8_t multibus_read(mbAddr addr){
   case 0x040000 ... 0x0EFFFF: // DYNAMICALLY ALLOCATED MAPPED AREA
     // This should have been caught above. The map must not have been set up.
     // Throw a multibus timeout.
-  case 0x2fe00: // Don't know what this is, newboot tries to read it
-  case 0x2ff00: // Don't know what this is, newboot tries to read it
-    logmsgf(LT_MULTIBUS,9,"multibus_read: timeout for addr 0x%X\n",addr.raw);
+    logmsgf(LT_MULTIBUS,9,"multibus_read: timeout for unmapped multibus addr 0x%X\n",addr.raw);
     PIC[0].IRQ |= 0x01;
     return(0xFF);
     break;
@@ -1819,7 +1825,7 @@ void multibus_write(mbAddr addr,uint8_t data){
   case 0x040000 ... 0x0EFFFF: // DYNAMICALLY ALLOCATED MAPPED AREA
     // This should have been caught above. The map must not have been set up.
     // Throw a multibus timeout.
-    logmsgf(LT_MULTIBUS,9,"multibus_write: timeout for addr 0x%X\n",addr.raw);
+    logmsgf(LT_MULTIBUS,9,"multibus_write: timeout for unmapped multibus addr 0x%X\n",addr.raw);
     PIC[0].IRQ |= 0x01;
     break;
 
