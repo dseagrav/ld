@@ -1879,8 +1879,8 @@ void read_mem_rom(){
     exit(-1);
   }else{
     ssize_t rv=0;
-    rv = read(rom_fd,MEM_ROM,2048);
-    if(rv != 2048){
+    rv = read(rom_fd,MEM_ROM,512);
+    if(rv != 512){
       perror("MEM:read");
       exit(-1);
     }
@@ -2080,7 +2080,7 @@ void hw_init(){
   vcmem_init(0,0xF8);
 #ifdef CONFIG_2X2
   lambda_initialize(1,0xF4);
-  vcmem_init(1,0xFC);
+  vcmem_init(1,0xFA);
 #endif
 }
 

@@ -126,17 +126,15 @@ void nubus_xfer(int access, int master, uint32_t address, uint32_t data){
     lambda_nubus_pulse(0);
     break;
 
-  case 0xF9: // MEMORY
-  case 0xFA:
-#ifdef CONFIG_2X2
-  case 0xFD: // MORE MEMORY FOR 2X2
-  case 0xFE:
-#endif
-    mem_clock_pulse();
-    break;
-
   case 0xF8: // VCMEM 0
     vcmem_clock_pulse(0);
+    break;
+
+  case 0xF9: // MEMORY
+#ifdef CONFIG_2X2
+  case 0xFC: // MORE MEMORY FOR 2X2
+#endif
+    mem_clock_pulse();
     break;
 
 #ifdef CONFIG_2X2
@@ -144,7 +142,7 @@ void nubus_xfer(int access, int master, uint32_t address, uint32_t data){
     lambda_nubus_pulse(1);
     break;
 
-  case 0xFC: // VCMEM 1
+  case 0xFA: // VCMEM 1
     vcmem_clock_pulse(1);
     break;
 #endif
@@ -184,15 +182,13 @@ void nubus_clock_pulse(){
 	break;
 
 #ifdef CONFIG_2X2
-      case 0xFC: // VCMEM 1
+      case 0xFA: // VCMEM 1
 	vcmem_clock_pulse(1);
 #endif
 
       case 0xF9: // MEM 0
-      case 0xFA: // MEM 1
 #ifdef CONFIG_2X2
-      case 0xFD: // MEM 2
-      case 0xFE: // MEM 3
+      case 0xFC: // MEM 1
 #endif
 	mem_clock_pulse();
 	break;

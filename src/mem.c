@@ -30,17 +30,22 @@
 #include "nubus.h"
 
 // Let's do 8MB
-#define RAM_TOP 0x800000 // 8MB
-// #define RAM_TOP 0x1000000 // 16MB
+// #define RAM_TOP 0x800000 // 8MB
+
+// How about 16MB
+// WAIT A MINUTE! 16MB IS THE ENTIRE SLOT SPACE! WHAT GIVES?
+// Easy - The board isn't really 16MB! The top 4K is omitted!
+#define RAM_TOP   0xFFF000 // "16MB"
 
 // Memory
 #ifdef CONFIG_2X2
-uint8_t MEM_RAM[4][RAM_TOP];
-#else
 uint8_t MEM_RAM[2][RAM_TOP];
+#else
+uint8_t MEM_RAM[1][RAM_TOP];
 #endif
 // static uint8_t prom_string[0x12] = "LMI 8-MEGABYTE";
-uint8_t MEM_ROM[2048];
+// uint8_t MEM_ROM[2048]; // TI ROMs are 2KB
+uint8_t MEM_ROM[512]; // LMI ROMs are 512 bytes
 
 // Externals
 extern int ld_die_rq;
@@ -48,10 +53,8 @@ extern int ld_die_rq;
 // Functions
 void mem_init(){
   bzero(MEM_RAM[0],RAM_TOP);
-  bzero(MEM_RAM[1],RAM_TOP);
 #ifdef CONFIG_2X2
-  bzero(MEM_RAM[2],RAM_TOP);
-  bzero(MEM_RAM[3],RAM_TOP);
+  bzero(MEM_RAM[1],RAM_TOP);
 #endif
 }
 
@@ -67,22 +70,18 @@ void mem_clock_pulse(){
   // If the bus is busy and not acknowledged...
   if(NUbus_Busy == 2 && NUbus_acknowledge == 0){
     // Is it us?
-    if(NUbus_Address.Card == 0xF9 || NUbus_Address.Card == 0xFA
+    if(NUbus_Address.Card == 0xF9
 #ifdef CONFIG_2X2
-       || NUbus_Address.Card == 0xFD || NUbus_Address.Card == 0xFE
+       || NUbus_Address.Card == 0xFC
 #endif
        ){
       int Card = 0;
       switch(NUbus_Address.Card){
       case 0xF9:
 	Card = 0; break;
-      case 0xFA:
-	Card = 1; break;
 #ifdef CONFIG_2X2
-      case 0xFD:
-	Card = 2; break;
-      case 0xFE:
-	Card = 3; break;
+      case 0xFC:
+	Card = 1; break;
 #endif
       }
       // Yes, answer
@@ -152,49 +151,28 @@ void mem_clock_pulse(){
 	}
 	break;
 
-	/*
-      case 0xffdfe0: // ???
-        if(NUbus_Request == VM_BYTE_READ){
-	  logmsgf(LT_MEM,10,"MEM: CSR READ?\n");
+	// Some kind of configuration register
+      case 0xFFF7FC:
+        if((NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ)
+	   && NUbus_Address.Byte == 0){
 	  NUbus_Data.word = 0;
-          NUbus_acknowledge=1;
-          return;
-        }
-        if(NUbus_Request == VM_BYTE_WRITE){
-	  logmsgf(LT_MEM,10,"MEM: CSR WRITE? DATA = 0x");
-	  writeH8(NUbus_Data.byte[0]);
-	  logmsgf(LT_MEM,10,"\n");
-          NUbus_acknowledge=1;
-          return;
-        }
-	break;
-      case 0xffdfe7: // Read Check Bit, 8b, read-only
-      case 0xffdfe8: // ECC output latch, 32b, read-only
-      case 0xffdfeb: // ECC register, 8b, read-only
-      case 0xffdfec: // ECC input latch, 32b, write-only
-      case 0xffdff0: // ECC check bit, 8b, write-only
-	*/
-
-      case 0xffdfe5: // Mem control, 8b, read-write
-        if(NUbus_Request == VM_BYTE_READ){
-	  logmsgf(LT_MEM,10,"MEM: MEM CONTROL READ?\n");
-	  NUbus_Data.word = 0;
-          NUbus_acknowledge=1;
-          return;
-        }
-        if(NUbus_Request == VM_BYTE_WRITE){
-	  logmsgf(LT_MEM,10,"MEM: MEM CONTROL WRITE? DATA = 0x%X\n",NUbus_Data.byte[0]);
-          NUbus_acknowledge=1;
-          return;
-        }
+	  NUbus_acknowledge=1;
+	  return;
+	}
+	if((NUbus_Request == VM_WRITE || NUbus_Request == VM_BYTE_WRITE)
+	   && NUbus_Address.Byte == 0){
+	  logmsgf(LT_MEM,0,"MEM: CONF REG WRITE: DATA = 0x%X\n",NUbus_Data.word);
+	  NUbus_acknowledge=1;
+	  return;
+	}
 	break;
 
 	// Configuration ROM
-      case 0xFFE000 ... 0xFFFFFF:
+      case 0xFFF800 ... 0xFFFFFF:
         if((NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ)
 	   && NUbus_Address.Byte == 0){
-          uint32_t rom_addr = (NUbus_Address.Addr-0xffe000)/4;
-	  rom_addr ^= 0x400; // Hax
+          uint32_t rom_addr = (NUbus_Address.Addr-0xfff800)/4;
+	  // rom_addr ^= 0x100; // Hax
           NUbus_Data.word = MEM_ROM[rom_addr];
           NUbus_acknowledge=1;
           return;

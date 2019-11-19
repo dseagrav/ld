@@ -1124,8 +1124,8 @@ uint16_t multibus_word_read(mbAddr addr){
     // Perform mapping
     MNB_Addr.Page = MNA_MAP[addr.Page].NUbus_Page;
     MNB_Addr.Offset = addr.Offset;
-    if(MNB_Addr.Card != 0xFA && MNB_Addr.Card != 0xF9 &&
-       MNB_Addr.Card != 0xF8 && MNB_Addr.Card != 0xFC){
+    if(MNB_Addr.Card != 0xF8 && MNB_Addr.Card != 0xF9 &&
+       MNB_Addr.Card != 0xFA && MNB_Addr.Card != 0xFC){
       logmsgf(LT_MULTIBUS,10,"MULTIBUS Word Addr 0x%X => NUBUS Addr 0x%X\n",addr.raw,MNB_Addr.raw);
     }
     // Obtain bus if we don't already have it
@@ -1188,8 +1188,8 @@ uint8_t multibus_read(mbAddr addr){
     // Map address
     MNB_Addr.Page = MNA_MAP[addr.Page].NUbus_Page;
     MNB_Addr.Offset = addr.Offset;
-    if(MNB_Addr.Card != 0xFA && MNB_Addr.Card != 0xF9 &&
-       MNB_Addr.Card != 0xF8 && MNB_Addr.Card != 0xFC){
+    if(MNB_Addr.Card != 0xF8 && MNB_Addr.Card != 0xF9 &&
+       MNB_Addr.Card != 0xFA && MNB_Addr.Card != 0xFC){
       logmsgf(LT_MULTIBUS,10,"MULTIBUS Addr 0x%X => NUBUS Addr 0x%X\n",addr.raw,MNB_Addr.raw);
     }
     // Obtain bus if we don't already have it
@@ -1227,7 +1227,12 @@ uint8_t multibus_read(mbAddr addr){
     return(SDU_RAM[addr.raw]);
     break;
 
+  case 0x10000:
     // ROM V102 attempts to read 0x10000
+    logmsgf(LT_MULTIBUS,9,"multibus_read: timeout for unknown multibus addr 0x%X\n",addr.raw);
+    PIC[0].IRQ |= 0x01;
+    return(0xFF);
+    break;
 
     // 0x1c080 is the LED register; Reading it is undefined.
 
@@ -1507,8 +1512,8 @@ void multibus_word_write(mbAddr addr,uint16_t data){
     uint32_t Word = data;
     MNB_Addr.Page = MNA_MAP[addr.Page].NUbus_Page;
     MNB_Addr.Offset = addr.Offset;
-    if(MNB_Addr.Card != 0xFA && MNB_Addr.Card != 0xF9 &&
-       MNB_Addr.Card != 0xF8 && MNB_Addr.Card != 0xFC){
+    if(MNB_Addr.Card != 0xF8 && MNB_Addr.Card != 0xF9 &&
+       MNB_Addr.Card != 0xFA && MNB_Addr.Card != 0xFC){
       logmsgf(LT_MULTIBUS,10,"MULTIBUS Word Addr 0x%X => NUBUS Addr 0x%X\n",addr.raw,MNB_Addr.raw);
     }
     // Obtain bus if we don't already have it
@@ -1557,8 +1562,8 @@ void multibus_write(mbAddr addr,uint8_t data){
     uint32_t Word = data;
     MNB_Addr.Page = MNA_MAP[addr.Page].NUbus_Page;
     MNB_Addr.Offset = addr.Offset;
-    if(MNB_Addr.Card != 0xFA && MNB_Addr.Card != 0xF9 &&
-       MNB_Addr.Card != 0xF8 && MNB_Addr.Card != 0xFC){
+    if(MNB_Addr.Card != 0xF8 && MNB_Addr.Card != 0xF9 &&
+       MNB_Addr.Card != 0xFA && MNB_Addr.Card != 0xFC){
       logmsgf(LT_MULTIBUS,10,"MULTIBUS Addr 0x%X => NUBUS Addr 0x%X\n",addr.raw,MNB_Addr.raw);
     }
     // Obtain bus if we don't already have it
@@ -3252,7 +3257,7 @@ void dump_lisp_start_state(int I){
   if((proc_conf_base&0xFF000000) == 0xF9000000){
     proc_conf = (processor_configuration_qs *)&MEM_RAM[0][proc_conf_base&0x7FFFFF];
   }
-  if((proc_conf_base&0xFF000000) == 0xFA000000){
+  if((proc_conf_base&0xFF000000) == 0xFC000000){
     proc_conf = (processor_configuration_qs *)&MEM_RAM[1][proc_conf_base&0x7FFFFF];
   }
   if((proc_conf_base&0xFF000000) == 0xFF000000){
@@ -3263,7 +3268,7 @@ void dump_lisp_start_state(int I){
     if((proc_conf->sys_conf_ptr&0xFF000000) == 0xF9000000){
       sys_conf = (system_configuration_qs *)&MEM_RAM[0][proc_conf->sys_conf_ptr&0x7FFFFF];
     }
-    if((proc_conf->sys_conf_ptr&0xFF000000) == 0xFA000000){
+    if((proc_conf->sys_conf_ptr&0xFF000000) == 0xFC000000){
       sys_conf = (system_configuration_qs *)&MEM_RAM[1][proc_conf->sys_conf_ptr&0x7FFFFF];
     }
     if((proc_conf->sys_conf_ptr&0xFF000000) == 0xFF000000){

@@ -1828,13 +1828,13 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
 #ifndef CONFIG_CACHE
     // FAST CACHE CODE
     // Accessing RAM?
-    if(pS[I].LCbus_Address.Card == 0xF9 || pS[I].LCbus_Address.Card == 0xFA
+    if(pS[I].LCbus_Address.Card == 0xF9
 #ifdef CONFIG_2X2
-       || pS[I].LCbus_Address.Card == 0xFD || pS[I].LCbus_Address.Card == 0xFE
+       || pS[I].LCbus_Address.Card == 0xFC
 #endif
        ){
       // Yes. Are we within RAM range?
-      if(pS[I].LCbus_Address.Addr <= 0x800000){
+      if(pS[I].LCbus_Address.Addr <= 0xFFF000){
 	// Yes! Is this a word read?
 	if(pS[I].LCbus_Request == VM_READ){
 	  return; // No need to pass request to nubus.
@@ -1843,21 +1843,17 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
 	if(pS[I].LCbus_Request == VM_WRITE){
 	  // Yes, make it so.
 #ifdef CONFIG_2X2
-	  extern uint8_t MEM_RAM[4][0x800000];
+	  extern uint8_t MEM_RAM[2][0xFFF000];
 #else
-	  extern uint8_t MEM_RAM[2][0x800000];
+	  extern uint8_t MEM_RAM[1][0xFFF000];
 #endif
 	  int Card = 0;
 	  switch(pS[I].LCbus_Address.Card){
 	  case 0xF9: // MEMORY 0
 	    break; // Card already zero
-	  case 0xFA: // MEMORY 1
-	    Card = 1; break;
 #ifdef CONFIG_2X2
-	  case 0xFD: // MEMORY 2
-	    Card = 2; break;
-	  case 0xFE: // MEMORY 3
-	    Card = 3; break;
+	  case 0xFC: // MEMORY 1
+	    Card = 1; break;
 #endif
 	  }
 	  // Do the write
@@ -1881,7 +1877,7 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
     // Are we accessing VCMEM?
     if(pS[I].LCbus_Address.Card == 0xF8
 #ifdef CONFIG_2X2
-       || pS[I].LCbus_Address.Card == 0xFC
+       || pS[I].LCbus_Address.Card == 0xFA
 #endif
        ){
       // Yes! Within VRAM range?
@@ -4259,16 +4255,12 @@ void lambda_clockpulse(int I){
 	  break;
 	case 0xF9: // MEMORY 0
 	  break; // Card already zero
-	case 0xFA: // MEMORY 1
-	  Card = 1; break;
 #ifdef CONFIG_2X2
-	case 0xFC: // VCMEM 1
+	case 0xFA: // VCMEM 1
 	  Card = -1;
 	  break;
-	case 0xFD: // MEMORY 2
-	  Card = 2; break;
-	case 0xFE: // MEMORY 3
-	  Card = 3; break;
+	case 0xFC: // MEMORY 1
+	  Card = 1; break;
 #endif
 	default:
 	  logmsgf(LT_LAMBDA,0,"FAST CACHE CYCLE: UI CARD: OP %o ADDR 0x%.8X\n",pS[I].LCbus_Request,pS[I].LCbus_Address.raw);
@@ -4276,9 +4268,9 @@ void lambda_clockpulse(int I){
 	}
 	if(Card >= 0){
 #ifdef CONFIG_2X2
-	  extern uint8_t MEM_RAM[4][0x800000];
+	  extern uint8_t MEM_RAM[2][0xFFF000];
 #else
-	  extern uint8_t MEM_RAM[2][0x800000];
+	  extern uint8_t MEM_RAM[1][0xFFF000];
 #endif
 	  // RAM READ
 	  switch(pS[I].LCbus_Address.Byte){
