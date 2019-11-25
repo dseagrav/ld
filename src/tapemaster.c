@@ -461,7 +461,8 @@ int tape_read(){
   if(reclen == 0){
     // Found file mark
     tape_fm = 1;
-    tape_error = 0x15; // Unexpected file mark
+    tape_error = 0;
+    // tape_error = 0x15; // Unexpected file mark
     return(0);
   }
   rv = read(tape_fd,tape_block,reclen);
@@ -557,7 +558,8 @@ int tape_reverse_read(){
   if(reclen == 0){
     // Found file mark
     tape_fm = 1;
-    tape_error = 0x15; // Unexpected file mark
+    tape_error = 0;
+    // tape_error = 0x15; // Unexpected file mark
     return(0);
   }
   // Go to head of data
@@ -1066,6 +1068,8 @@ void tapemaster_clock_pulse(){
 	  TM_PB.Tape.DR_Status.File_Mark = tape_fm;
 	  TM_PB.Tape.DR_Status.Load_Point = tape_bot;
 	  TM_PB.Tape.DR_Status.End_Of_Tape = tape_eot;
+	  TM_PB.Tape.Return_Count = 0;
+	  TM_PB.Tape.Records = 0;
 	  if(tape_error != 0){ TM_PB.Tape.CD_Status.Error = tape_error; }
 	  if(TM_PB.Command == 0x60){
 	    // Streaming
@@ -1165,7 +1169,10 @@ void tapemaster_clock_pulse(){
 	  TM_PB.Tape.DR_Status.File_Mark = tape_fm;
 	  TM_PB.Tape.DR_Status.Load_Point = tape_bot;
 	  TM_PB.Tape.DR_Status.End_Of_Tape = tape_eot;
-	  if(tape_error != 0 && tape_error != 0x15){
+	  // Should we update these here too?
+	  // TM_PB.Tape.Return_Count = 0;
+	  // TM_PB.Tape.Records = 0;
+	  if(tape_error != 0){
 	    TM_PB.Tape.CD_Status.Error = tape_error;
 	  }else{
 	    tape_error = 0; // Ensure clobber
