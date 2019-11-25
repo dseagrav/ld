@@ -29,10 +29,7 @@
 #include "ld.h"
 #include "nubus.h"
 
-// Let's do 8MB
-// #define RAM_TOP 0x800000 // 8MB
-
-// How about 16MB
+// Board is 16MB
 // WAIT A MINUTE! 16MB IS THE ENTIRE SLOT SPACE! WHAT GIVES?
 // Easy - The board isn't really 16MB! The top 4K is omitted!
 #define RAM_TOP   0xFFF000 // "16MB"
@@ -43,9 +40,10 @@ uint8_t MEM_RAM[2][RAM_TOP];
 #else
 uint8_t MEM_RAM[1][RAM_TOP];
 #endif
-// static uint8_t prom_string[0x12] = "LMI 8-MEGABYTE";
+static uint8_t rom_string[0x1B] = "LMI 16-MEGABYTE MEMORY V1.0";
+// Don't use the ROM image anymore, no longer needed.
 // uint8_t MEM_ROM[2048]; // TI ROMs are 2KB
-uint8_t MEM_ROM[512]; // LMI ROMs are 512 bytes
+// uint8_t MEM_ROM[512]; // LMI ROMs are 512 bytes
 
 // Externals
 extern int ld_die_rq;
@@ -172,51 +170,15 @@ void mem_clock_pulse(){
         if((NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ)
 	   && NUbus_Address.Byte == 0){
           uint32_t rom_addr = (NUbus_Address.Addr-0xfff800)/4;
-	  // rom_addr ^= 0x100; // Hax
-          NUbus_Data.word = MEM_ROM[rom_addr];
+	  if(rom_addr <= 0x1B){
+	    NUbus_Data.word = rom_string[rom_addr];
+	  }else{
+	    NUbus_Data.word = 0;
+	  }
           NUbus_acknowledge=1;
           return;
         }
         break;
-
-	/*
-      case 0xfff800 ... 0xffff63:
-	if(NUbus_Request == VM_READ){
-	  uint8_t prom_addr = (NUbus_Address.Addr-0xfff800)/4;
-	  if(prom_addr <= 0x12){
-	    NUbus_Data.word = prom_string[prom_addr];
-	  }else{
-	    NUbus_Data.word = 0;
-	  }
-	  NUbus_acknowledge=1;
-	  return;
-	}
-	if(NUbus_Request == VM_BYTE_READ){
-	  uint8_t prom_addr = (NUbus_Address.Addr-0xfff800)/4;
-	  if(prom_addr <= 0x12){
-	    NUbus_Data.word = prom_string[prom_addr];
-	  }else{
-	    NUbus_Data.word = 0;
-	  }
-	  NUbus_acknowledge=1;
-	  return;
-	}
-	break;
-
-	// Serial number? Model number?
-      case 0xFFFF64 ... 0xFFFFFF:
-	if(NUbus_Request == VM_READ){
-	  NUbus_Data.word = 0;
-	  NUbus_acknowledge=1;
-	  return;
-	}
-	if(NUbus_Request == VM_BYTE_READ){
-	  NUbus_Data.byte[NUbus_Address.Byte] = 0;
-	  NUbus_acknowledge=1;
-	  return;
-	}
-	break;
-	*/
 
       // Uhoh!
       default:

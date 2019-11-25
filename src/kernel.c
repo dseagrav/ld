@@ -1871,23 +1871,6 @@ void read_vcmem_rom(){
   }
 }
 
-void read_mem_rom(){
-  extern uint8_t MEM_ROM[];
-  int rom_fd = open("roms/MEM.ROM",O_RDONLY);
-  if(rom_fd < 0){
-    perror("MEM:open");
-    exit(-1);
-  }else{
-    ssize_t rv=0;
-    rv = read(rom_fd,MEM_ROM,512);
-    if(rv != 512){
-      perror("MEM:read");
-      exit(-1);
-    }
-    close(rom_fd);
-  }
-}
-
 void read_nvram(){
   extern uint8_t CMOS_RAM[];
   int cmos_fd = open("CMOS.RAM",O_RDONLY);
@@ -4483,7 +4466,6 @@ int main(int argc, char *argv[]){
   // Read in ROMs
   read_sdu_rom();
   read_vcmem_rom();
-  read_mem_rom();
 
   // If the debug switch is on debug/install mode
   if(sdu_rotary_switch == 0){
