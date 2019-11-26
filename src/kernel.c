@@ -4240,6 +4240,8 @@ void console_exec_loop(){
       sdu_kbd_clockpulse();
 #endif
       sdl_refresh(0);
+      // If the serial console is enabled, run that too.
+      if(sdu_rotary_switch != 1){ sdu_cons_clockpulse(); }
       time_since_input_refresh -= input_fps;
     }
     if(time_since_stat_refresh > 1000000){
