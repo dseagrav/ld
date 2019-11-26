@@ -159,7 +159,10 @@ void mem_clock_pulse(){
 	}
 	if((NUbus_Request == VM_WRITE || NUbus_Request == VM_BYTE_WRITE)
 	   && NUbus_Address.Byte == 0){
-	  logmsgf(LT_MEM,0,"MEM: CONF REG WRITE: DATA = 0x%X\n",NUbus_Data.word);
+	  // Hi bit turns on the LED?
+	  if(NUbus_Data.word != 0x80 && NUbus_Data.word != 0x00){
+	    logmsgf(LT_MEM,0,"MEM: CONF REG WRITE: DATA = 0x%X\n",NUbus_Data.word);
+	  }
 	  NUbus_acknowledge=1;
 	  return;
 	}
