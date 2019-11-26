@@ -1482,7 +1482,8 @@ uint8_t multibus_read(mbAddr addr){
   case 0x040000 ... 0x0EFFFF: // DYNAMICALLY ALLOCATED MAPPED AREA
     // This should have been caught above. The map must not have been set up.
     // Throw a multibus timeout.
-    logmsgf(LT_MULTIBUS,9,"multibus_read: timeout for unmapped multibus addr 0x%X\n",addr.raw);
+    logmsgf(LT_MULTIBUS,9,"multibus_read: timeout for unmapped multibus addr 0x%X, map ent 0x%.8X\n",
+	    addr.raw,MNA_MAP[addr.Page].word);
     PIC[0].IRQ |= 0x01;
     return(0xFF);
     break;
