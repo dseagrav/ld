@@ -150,17 +150,15 @@ void mem_clock_pulse(){
 	break;
 
 	// Some kind of configuration register
-      case 0xFFF7FC:
-        if((NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ)
-	   && NUbus_Address.Byte == 0){
+      case 0xFFF7FC ... 0xFFF7FF:
+        if((NUbus_Request == VM_READ || NUbus_Request == VM_BYTE_READ)){
 	  NUbus_Data.word = 0;
 	  NUbus_acknowledge=1;
 	  return;
 	}
-	if((NUbus_Request == VM_WRITE || NUbus_Request == VM_BYTE_WRITE)
-	   && NUbus_Address.Byte == 0){
-	  // Hi bit turns on the LED?
-	  if(NUbus_Data.word != 0x08 && NUbus_Data.word != 0x00){
+	if((NUbus_Request == VM_WRITE || NUbus_Request == VM_BYTE_WRITE)){
+	  // Bit 0x08 is LED?
+	  if(!(NUbus_Data.word == 0x08 && NUbus_Address.Byte == 0) && NUbus_Data.word != 0x00){
 	    logmsgf(LT_MEM,0,"MEM: CONF REG WRITE: DATA = 0x%X\n",NUbus_Data.word);
 	  }
 	  NUbus_acknowledge=1;
@@ -185,9 +183,9 @@ void mem_clock_pulse(){
 
       // Uhoh!
       default:
-	logmsgf(LT_MEM,0,"RAM: Unimplemented address 0x%X (0x%X)\n",
-	       NUbus_Address.Addr,NUbus_Address.raw);
-	lambda_dump(DUMP_ALL);
+	logmsgf(LT_MEM,0,"RAM: Unimplemented address 0x%X (0x%X), op %X\n",
+		NUbus_Address.Addr,NUbus_Address.raw,NUbus_Request);
+	// lambda_dump(DUMP_ALL);
 	ld_die_rq=1;
 	break;
       }
