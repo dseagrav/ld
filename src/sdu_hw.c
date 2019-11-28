@@ -1274,6 +1274,14 @@ void i8086_clockpulse(){
     // if(segregs[regcs] == 0xF000 && ip == 0x2D19){ dotrace = 1; }
     if(dotrace == 1){ // || (segregs[regcs] != 0xFFFF && segregs[regcs] != 0xF000)){
       // dotrace = 1;
+      logmsgf(LT_SDU,10,"AX: 0x%.4X BX: 0x%.4X CX: 0x%.4X DX: 0x%.4X\n",
+	      regs.wordregs[regax],regs.wordregs[regbx],
+	      regs.wordregs[regcx],regs.wordregs[regdx]);
+      logmsgf(LT_SDU,10,"DS: 0x%.4X SI: 0x%.4X ES: 0x%.4X DI: 0x%.4X\n",
+	      segregs[regds], regs.wordregs[regsi],
+	      segregs[reges], regs.wordregs[regdi]);
+      logmsgf(LT_SDU,10,"SS: 0x%.4X SP: 0x%.4X BP: 0x%.4X IFL %X\n",
+	      segregs[regss], regs.wordregs[regsp], regs.wordregs[regbp],ifl);
       logmsgf(LT_SDU,10,"i8088: CS:IP %.4X:%.4X = 0x%X\n",segregs[regcs],ip,opcode);
     }
     StepIP (1);
