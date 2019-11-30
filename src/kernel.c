@@ -1911,23 +1911,6 @@ void read_vcmem_rom(){
   }
 }
 
-void read_mem_rom(){
-  extern uint8_t MEM_ROM[];
-  int rom_fd = open("roms/MEM.ROM",O_RDONLY);
-  if(rom_fd < 0){
-    perror("MEM:open");
-    exit(-1);
-  }else{
-    ssize_t rv=0;
-    rv = read(rom_fd,MEM_ROM,2048);
-    if(rv != 2048){
-      perror("MEM:read");
-      exit(-1);
-    }
-    close(rom_fd);
-  }
-}
-
 void read_nvram(){
   extern uint8_t CMOS_RAM[];
   int cmos_fd = open("CMOS.RAM",O_RDONLY);
@@ -2120,7 +2103,7 @@ void hw_init(){
   vcmem_init(0,0xF8);
 #ifdef CONFIG_2X2
   lambda_initialize(1,0xF4);
-  vcmem_init(1,0xFC);
+  vcmem_init(1,0xFA);
 #endif
 }
 
@@ -4228,8 +4211,8 @@ int main(int argc, char *argv[]){
   {
     char sysconf[128];
     sysconf[0] = 0;
-    strncat(sysconf,STR(SYSCONFDIR),128);
-    strncat(sysconf,"/lam.yml",128);
+    strncat(sysconf,STR(SYSCONFDIR),127);
+    strncat(sysconf,"/lam.yml",127);
     try_yaml_file(sysconf);
   }
 #endif
@@ -4387,7 +4370,6 @@ int main(int argc, char *argv[]){
   // Read in ROMs
   read_sdu_rom();
   read_vcmem_rom();
-  read_mem_rom();
 
   // If the debug switch is on debug/install mode
   if(sdu_rotary_switch == 0){
