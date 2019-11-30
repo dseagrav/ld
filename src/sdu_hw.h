@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2017
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
    Mike Chambers
@@ -161,6 +161,7 @@ typedef struct tag_i8259 {
   uint8_t Last_IRQ; // Last IRQ status
   uint8_t NSMR; // Not-Slave Mask Register
   uint8_t SFNM; // Special Fully Nested Mode (used with NSMR)
+  uint8_t Pending_ISR; // ISR was refreshed after EOI, reservice
 } i8259;
 
 // 8253 PIT

@@ -1,4 +1,4 @@
-/* Copyright 2016-2017 
+/* Copyright 2016-2019
    Daniel Seagraves <dseagrav@lunar-tokyo.net>
    Barry Silverman <barry@disus.com>
 
@@ -427,6 +427,7 @@ void sdu_init(){
       PIC[x].IRR = 0;
       PIC[x].State = 0;
       PIC[x].Last_IRQ = 0;
+      PIC[x].Pending_ISR = 0;
       x++;
     }
   }
@@ -522,6 +523,8 @@ void pic_write(int pic,int adr, uint8_t data){
       PIC[pic].Last_IRQ = 0xFF;
       // Interrupt Mask Register is cleared
       PIC[pic].IMR = 0;
+      // Also clear the pending ISR flag
+      PIC[pic].Pending_ISR = 0;
       // IR7 input is assigned priority 7
       // Slave Mode Address is set to 7
       // Special Mask Mode is cleared and Status Read is set to IRR
@@ -559,10 +562,18 @@ void pic_write(int pic,int adr, uint8_t data){
 		if((PIC[pic].ISR&x) != 0){
 		  PIC[pic].ISR &= ~x;
 		  PIC[pic].IRR &= ~x;
-		  PIC[pic].IRQ &= ~x;	
-		  /* if(pic == 2){
-		    writeDec(y);
-		    } */
+		  PIC[pic].IRQ &= ~x;
+		  // ISR IS UPDATED WHEN EOI IS ISSUED
+                  if(PIC[pic].IRQ != 0){
+                    while(x < 0x100){
+                      if(PIC[pic].IRQ&x && (PIC[pic].IMR&x) == 0){
+                        PIC[pic].ISR = x;
+                        PIC[pic].Pending_ISR = 1;
+                        break;
+                      }
+                      x <<= 1;
+                    }
+                  }
 		  break;
 		}
 		x <<= 1;
@@ -723,40 +734,39 @@ uint16_t evaluate_pic(int pic){
   if(PIC[pic].State == 4){
     int x = 0x01,y = 0;
     // If nothing changed, bail.
-    if(PIC[pic].IRQ == PIC[pic].Last_IRQ){ return(0); }
-    // Perform edge detection
-    while(x < 0x100){
-      // Edge detected?
-      if((PIC[pic].IRQ&x) == x){
-	if((PIC[pic].Last_IRQ&x) == 0){
-	  intr = 1;
-	  /* if(pic == 2){
-	    logmsgf(,,"PIC ");
-	    writeDec(pic);
-	    logmsgf(,,": EDGE DETECTED - IRQ ");
-	    writeDec(y);
-	    if((PIC[pic].IMR&x) != 0){
-	      logmsgf(,," (MASKED!)");
-	    }
-	    logmsgf(,,"\n");
-	    } */
-	  PIC[pic].Last_IRQ |= x;	  
-	  break;
+    if(PIC[pic].IRQ == PIC[pic].Last_IRQ && PIC[pic].Pending_ISR == 0){ return(0); }
+    // If not pending ISR, evaluate state
+    if(PIC[pic].Pending_ISR != 0){
+      intr = 1; // We have an int
+    }else{
+      // Perform edge detection
+      while(x < 0x100){
+	// Edge detected?
+	if((PIC[pic].IRQ&x) == x){
+	  if((PIC[pic].Last_IRQ&x) == 0){
+	    intr = 1;
+	    PIC[pic].Last_IRQ |= x;
+	    break;
+	  }
+	}else{
+	  // Turn off bit
+	  PIC[pic].Last_IRQ &= ~x; // PIC[pic].IRQ;
 	}
-      }else{
-	// Turn off bit
-	PIC[pic].Last_IRQ &= ~x; // PIC[pic].IRQ;
+	x <<= 1;
+	y++;
       }
-      x <<= 1;
-      y++;
     }
     // Update IRR
     PIC[pic].IRR = PIC[pic].IRQ;
-    // PIC[pic].Last_IRQ = PIC[pic].IRQ;
     // If we found a new int, handle it
     if(intr != 0){
-      x = 0x01,y = 0;
+      // If ISR pending, clobber it for refreshing
+      if(PIC[pic].Pending_ISR != 0){
+        PIC[pic].ISR = 0;
+        PIC[pic].Pending_ISR = 0;
+      }
       // CHECK FROM HIGH TO LOW, 0 = HIGHEST
+      x = 0x01,y = 0;
       while(x < 0x100){
 	// If we're busy at this level, we have nothing more to do.
 	if((PIC[pic].ISR&x) != 0){ 
@@ -1183,6 +1193,13 @@ uint8_t multibus_read(mbAddr addr){
     return(SDU_RAM[addr.raw]);
     break;
 
+  case 0x10000:
+    // ROM V102 attempts to read 0x10000
+    logmsgf(LT_MULTIBUS,9,"multibus_read: timeout for unknown multibus addr 0x%X\n",addr.raw);
+    PIC[0].IRQ |= 0x01;
+    return(0xFF);
+    break;
+
   case 0x1c084: // Switch Setting / Slot Number
     {
       // high four bits are slot number of SDU.
@@ -1392,8 +1409,8 @@ uint8_t multibus_read(mbAddr addr){
   case 0x040000 ... 0x0EFFFF: // DYNAMICALLY ALLOCATED MAPPED AREA
     // This should have been caught above. The map must not have been set up.
     // Throw a multibus timeout.
-  case 0x2fe00: // Don't know what this is, newboot tries to read it
-  case 0x2ff00: // Don't know what this is, newboot tries to read it
+  case 0x2fe00: // FIRST BURR-BROWN
+  case 0x2ff00: // SECOND BURR-BROWN
     logmsgf(LT_MULTIBUS,9,"multibus_read: timeout for addr 0x%X\n",addr.raw);
     PIC[0].IRQ |= 0x01;
     return(0xFF);
@@ -2961,7 +2978,7 @@ void sdu_clock_pulse(){
 	  NUbus_acknowledge=1;
 	  return;
 	}
-	// Falls into...
+	// Fall thru
       case 0x100184:
 	// Reset CPU
 	if(NUbus_Request == VM_WRITE){
