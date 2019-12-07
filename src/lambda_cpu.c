@@ -1892,7 +1892,7 @@ void lcbus_io_request(int access, int I, uint32_t address, uint32_t data){
 	  extern struct vcmemState vcS[2];
           uint32_t FBAddr = pS[I].LCbus_Address.Addr-0x20000;
 	  int vn = 0;
-	  if(pS[I].LCbus_Address.Card == 0xFC){ vn = 1; }
+	  if(pS[I].LCbus_Address.Card == 0xFA){ vn = 1; }
 	  // WORD WRITE
 	  switch(pS[I].LCbus_Address.Byte){
 	  case 0: // Full Word
