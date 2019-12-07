@@ -93,10 +93,12 @@ extern struct lambdaState pS[2];
 // int disk_geometry_sph = 25;  // Sectors per head
 // int disk_geometry_spc = 500; // Sectors per cylinder
 
+#ifndef CONFIG_PHYSMS
 // Mouse state A-memory locations
 uint32_t mouse_x_loc[2] = { 0156,0156 };
 uint32_t mouse_y_loc[2] = { 0157,0157 };
 uint32_t mouse_wake_loc[2] = { 0170,0170 };
+#endif
 // SDU rotary switch position
 uint8_t sdu_rotary_switch = 0;
 
@@ -115,6 +117,11 @@ int dump_seq = 0;
 char kbd_filename[128] = {"/dev/ttyS0"}; // File name for physical keyboard serial port
 int kbd_fd = -1;                         // File desc for physical keyboard serial port
 speed_t kbd_baudrate = B9600;            // Baud rate for physical keyboard serial port
+#endif
+#ifdef CONFIG_PHYSMS
+char ms_filename[128] = {"/dev/ttyS0"}; // File name for physical mouse serial port
+int ms_fd = -1;                         // File desc for physical mouse serial port
+speed_t ms_baudrate = B1200;            // Baud rate for physical mouse serial port
 #endif
 
 // Lisp machine key codes/names.
@@ -665,14 +672,16 @@ int video_frame = 0;    // Frame trigger flag
 // Keyboard buffer
 uint8_t keyboard_io_ring[2][0x100];
 uint8_t keyboard_io_ring_top[2],keyboard_io_ring_bottom[2];
-// Mouse
+// Software Mouse
+#ifndef CONFIG_PHYSMS
 int mouse_op_mode = 1; // 0 = direct, 1 = shared
 int mouse_update_inhibit = 0; // Inihibit the next SDL mouse event when Lisp warps the mouse
-uint8_t mouse_io_ring[2][0x100];
-uint8_t mouse_io_ring_top[2],mouse_io_ring_bottom[2];
 uint8_t mouse_phase=0;
 uint8_t mouse_capture=1; // Pointer capture state in mode 0, pointer hide/show state in mode 1
 uint8_t mouse_last_buttons=0x07;
+#endif
+uint8_t mouse_io_ring[2][0x100];
+uint8_t mouse_io_ring_top[2],mouse_io_ring_bottom[2];
 
 int logmsgf(int type, int level, const char *format, ...){
   va_list args;
@@ -755,6 +764,7 @@ void kbd_handle_char(int symcode, int down){
   }
 
   // Check for decapture/pointer-hide-show key
+#ifndef CONFIG_PHYSMS
   if(sdlchar == SDLK_F10){
     if(down){
       if(mouse_capture != 0){
@@ -773,6 +783,7 @@ void kbd_handle_char(int symcode, int down){
     }
     return;
   }
+#endif
 
   // Check for console switch key
 #ifdef CONFIG_2X2
@@ -795,10 +806,12 @@ void kbd_handle_char(int symcode, int down){
       SDL_UpdateRect(screen, 0, 0, video_width, video_height);
       // Reset accumulation
       u_minh = 0x7fffffff; u_maxh = 0; u_minv = 0x7fffffff; u_maxv = 0;
+#ifndef CONFIG_PHYSMS
       // If we are in shared mouse mode, move the pointer to where the new console thinks it should be
       if(mouse_op_mode == 1 && cp_state[active_console] == 3){
 	warp_mouse_callback(active_console);
       }
+#endif
     }
     return;
   }
@@ -857,6 +870,7 @@ void sdl_process_key(SDL_KeyboardEvent *ev, int updown){
   kbd_handle_char(ev->keysym.sym, updown);
 }
 
+#ifndef CONFIG_PHYSMS
 void sdl_send_mouse_event(void){
   int state,xm,ym;
   uint8_t buttons=0x07;
@@ -949,6 +963,7 @@ void warp_mouse_callback(int cp){
   // printf("WARP MOUSE 0x%X,0x%X\n",pS[cp].Amemory[mouse_x_loc[cp]],pS[cp].Amemory[mouse_y_loc[cp]]);
   SDL_WarpMouse((pS[cp].Amemory[mouse_x_loc[cp]]&0xFFFF),(pS[cp].Amemory[mouse_y_loc[cp]]&0xFFFF));
 }
+#endif
 
 void set_bow_mode(int vn,int mode){
   int i,j;
@@ -1026,13 +1041,15 @@ void sdl_refresh(int vblank){
       sdl_process_key(&ev->key, 0);
       break;
 
+#ifndef CONFIG_PHYSMS
     case SDL_MOUSEMOTION:
     case SDL_MOUSEBUTTONDOWN:
     case SDL_MOUSEBUTTONUP:
     case SDL_APPMOUSEFOCUS:
       sdl_send_mouse_event();
       break;
-
+#endif
+      
     case SDL_QUIT:
       if(quit_on_sdl_quit != 0){
 	sdl_system_shutdown_request();
@@ -1046,10 +1063,12 @@ void sdl_refresh(int vblank){
 }
 
 void sdl_cleanup(void){
+#ifndef CONFIG_PHYSMS
   if(mouse_op_mode == 0){
     SDL_WM_GrabInput(SDL_GRAB_OFF);
   }
   SDL_ShowCursor(SDL_ENABLE);
+#endif
   if(sdu_conn_fd > 0){
     close(sdu_conn_fd);
   }
@@ -1123,12 +1142,13 @@ int sdl_init(int width, int height){
   // Redraw it
   SDL_UpdateRect(screen, 0, 0, video_width, video_height);
 
+#ifndef CONFIG_PHYSMS
   // Grab the mouse if we are in direct mode
   if(mouse_op_mode == 0){
     SDL_WM_GrabInput(SDL_GRAB_ON);
   }
   SDL_ShowCursor(SDL_DISABLE);
-
+#endif
   atexit(sdl_cleanup);
 
   // Kick interval timer
@@ -1317,6 +1337,7 @@ void kbd_handle_char(int scancode, int down){
     return;
   }
 
+#ifndef CONFIG_PHYSMS
   // Check for decapture/pointer-hide-show key
   if(sdlchar == SDL_SCANCODE_F10){
     if(down){
@@ -1335,6 +1356,7 @@ void kbd_handle_char(int scancode, int down){
       }
     }
   }
+#endif
 
   // Check for console switch key
 #ifdef CONFIG_2X2
@@ -1362,10 +1384,12 @@ void kbd_handle_char(int scancode, int down){
       // Reset accumulation
       u_minh = 0x7fffffff; u_maxh = 0; u_minv = 0x7fffffff; u_maxv = 0;
 
+#ifndef CONFIG_PHYSMS
       // If we are in shared mouse mode, move the pointer to where the new console thinks it should be
       if(mouse_op_mode == 1 && cp_state[active_console] == 3){
         warp_mouse_callback(active_console);
       }
+#endif
     }
     return;
   }
@@ -1415,6 +1439,7 @@ static void sdl_process_key(SDL_KeyboardEvent *ev, int updown){
   kbd_handle_char(ev->keysym.scancode, updown);
 }
 
+#ifndef CONFIG_PHYSMS
 static void sdl_send_mouse_event(void){
   int state,xm,ym;
   uint8_t buttons=0x07;
@@ -1511,6 +1536,7 @@ void warp_mouse_callback(int cp){
   // printf("WARP MOUSE 0x%X,0x%X\n",pS[cp].Amemory[mouse_x_loc[cp]],pS[cp].Amemory[mouse_y_loc[cp]]);
   SDL_WarpMouseInWindow(SDLWindow,(pS[cp].Amemory[mouse_x_loc[cp]]&0xFFFF),(pS[cp].Amemory[mouse_y_loc[cp]]&0xFFFF));
 }
+#endif
 
 void set_bow_mode(int vn,int mode){
   int i,j;
@@ -1590,6 +1616,7 @@ void sdl_refresh(int vblank){
 	sdl_system_shutdown_request();
       }
       break;
+#ifndef CONFIG_PHYSMS
     case SDL_MOUSEMOTION:
     case SDL_MOUSEBUTTONDOWN:
     case SDL_MOUSEBUTTONUP:
@@ -1597,6 +1624,7 @@ void sdl_refresh(int vblank){
     case SDL_WINDOWEVENT_LEAVE:
       sdl_send_mouse_event();
       break;
+#endif
 
     default:
       break;
@@ -1605,10 +1633,12 @@ void sdl_refresh(int vblank){
 }
 
 static void sdl_cleanup(void){
+#ifndef CONFIG_PHYSMS
   if(mouse_op_mode == 0){
     SDL_SetRelativeMouseMode(SDL_FALSE);
   }
   SDL_ShowCursor(SDL_ENABLE);
+#endif
   if(sdu_conn_fd > 0){
     close(sdu_conn_fd);
   }
@@ -1702,11 +1732,13 @@ int sdl_init(int width, int height){
       *p++ = pixel_off;
   }
 
+#ifndef CONFIG_PHYSMS
   // Grab the mouse if we are in direct mode
   if(mouse_op_mode == 0){
     SDL_SetRelativeMouseMode(SDL_TRUE);
   }
   SDL_ShowCursor(SDL_DISABLE);
+#endif
 
   // Allow a screen saver to work
   SDL_EnableScreenSaver();
@@ -2514,6 +2546,63 @@ void xbeep(int halfwavelength, int duration) {
 }
 #endif
 
+#ifdef CONFIG_PHYSMS
+/* PHYSICAL MOUSE INTERFACE */
+void sdu_ms_init(){
+  int flags;
+  struct termios term;
+  // Obtain FD
+  ms_fd = open(ms_filename,O_RDWR);
+  if(ms_fd < 0){
+    perror("MS:open");
+    ms_fd = -1;
+    return;
+  }
+  // Obtain termios state
+  if(tcgetattr(ms_fd,&term) < 0){
+    perror("MS:tcgetattr");
+    ms_fd = -1;
+    return;
+  }
+  // Make raw
+  cfmakeraw(&term);
+  // Set baud rate
+  cfsetispeed(&term,ms_baudrate);
+  cfsetospeed(&term,ms_baudrate);
+  // Make it so
+  if(tcsetattr(ms_fd,TCSAFLUSH,&term) < 0){
+    perror("MS:tcsetattr");
+    ms_fd = -1;
+    return;
+  }
+  // Become nonblocking
+  flags = fcntl(ms_fd,F_GETFL,0);
+  if(flags < 0){ flags = 0; }
+  fcntl(ms_fd,F_SETFL,flags|O_NONBLOCK);
+  // Done
+}
+
+void sdu_ms_clockpulse(){
+  char mbuf[4];
+  int x = 0;
+  ssize_t res = 0;
+  if(ms_fd < 0){ return; }
+  res = read(ms_fd,mbuf,3);
+  if(res < 0){
+    if(errno != EAGAIN && errno != EWOULDBLOCK){
+      perror("sdu_ms:read()");
+      close(ms_fd);
+      ms_fd = 0;
+    }
+    return;
+  }
+  while(x < res){
+    put_mouse_rx_ring(active_console,mbuf[x]); // Forward byte
+    x++;
+  }
+}
+#endif
+
 #ifdef BURR_BROWN
 // Debug interface initialization
 void debug_init(){
@@ -3023,6 +3112,7 @@ void parse_config_line(char *line){
     }
   }
 #endif
+#ifndef CONFIG_PHYSMS
   if(strcasecmp(tok,"mouse_mode") == 0){
     // Mouse Operation Mode
     tok = strtok(NULL," \t\r\n");
@@ -3090,6 +3180,7 @@ void parse_config_line(char *line){
       printf("Using A-%o for CP 1 Mouse Wake\n",mouse_wake_loc[1]);
     }
   }
+#endif
   if(strcasecmp(tok,"video_height") == 0){
     tok = strtok(NULL," \t\r\n");
     if(tok != NULL){
@@ -3383,6 +3474,59 @@ int yaml_lam_mapping_loop(yaml_parser_t *parser){
 	    return(-1);
 	  }
 	  printf("Physical keyboard baud rate is %d\n",baudrate);
+	  goto value_done;
+	}
+#endif
+#ifdef CONFIG_PHYSMS
+	if(strcmp(key,"ms_file") == 0){
+	  strncpy(ms_filename,value,128);
+	  printf("Using physical mouse at %s\n",ms_filename);
+	  goto value_done;
+	}
+	if(strcmp(key,"ms_baud") == 0){
+	  int baudrate = atoi(value);
+	  switch(baudrate){
+	  case 50:
+	    ms_baudrate = B50; break;
+	  case 75:
+	    ms_baudrate = B75; break;
+	  case 110:
+	    ms_baudrate = B110; break;
+	  case 134:
+	    ms_baudrate = B134; break;
+	  case 150:
+	    ms_baudrate = B150; break;
+	  case 200:
+	    ms_baudrate = B200; break;
+	  case 300:
+	    ms_baudrate = B300; break;
+	  case 600:
+	    ms_baudrate = B600; break;
+	  case 1200:
+	    ms_baudrate = B1200; break;
+	  case 1800:
+	    ms_baudrate = B1800; break;
+	  case 2400:
+	    ms_baudrate = B2400; break;
+	  case 4800:
+	    ms_baudrate = B4800; break;
+	  case 9600:
+	    ms_baudrate = B9600; break;
+	  case 19200:
+	    ms_baudrate = B19200; break;
+	  case 38400:
+	    ms_baudrate = B38400; break;
+	  case 57600:
+	    ms_baudrate = B57600; break;
+	  case 115200:
+	    ms_baudrate = B115200; break;
+	  case 230400:
+	    ms_baudrate = B230400; break;
+	  default:
+	    printf("Invalid physical mouse baud rate.\n");
+	    return(-1);
+	  }
+	  printf("Physical mouse baud rate is %d\n",baudrate);
 	  goto value_done;
 	}
 #endif
@@ -3690,6 +3834,7 @@ int yaml_video_mapping_loop(yaml_parser_t *parser){
   return(0);
 }
 
+#ifndef CONFIG_PHYSMS
 int yaml_mouse_sequence_loop(yaml_parser_t *parser){
   char key[128];
   char value[128];
@@ -3872,6 +4017,7 @@ int yaml_mouse_mapping_loop(yaml_parser_t *parser){
   }
   return(0);
 }
+#endif
 
 int yaml_log_mapping_loop(yaml_parser_t *parser){
   char key[128];
@@ -4002,10 +4148,12 @@ int yaml_event_loop(yaml_parser_t *parser){
 	rv = yaml_keyboard_sequence_loop(parser);
 	goto seq_done;
       }
+#ifndef CONFIG_PHYSMS
       if(strcmp(key,"mouse") == 0){
 	rv = yaml_mouse_sequence_loop(parser);
 	goto seq_done;
       }
+#endif
       if(strcmp(key,"disk") == 0){
 	rv = yaml_disk_sequence_loop(parser);
 	goto seq_done;
@@ -4040,10 +4188,12 @@ int yaml_event_loop(yaml_parser_t *parser){
 	rv = yaml_video_mapping_loop(parser);
 	goto map_done;
       }
+#ifndef CONFIG_PHYSMS
       if(strcmp(key,"mouse") == 0){
 	rv = yaml_mouse_mapping_loop(parser);
 	goto map_done;
       }
+#endif
       if(strcmp(key,"network") == 0){
 	rv = yaml_network_mapping_loop(parser);
 	goto map_done;
@@ -4239,6 +4389,9 @@ void console_exec_loop(){
 #ifdef CONFIG_PHYSKBD
       sdu_kbd_clockpulse();
 #endif
+#ifdef CONFIG_PHYSMS
+      sdu_ms_clockpulse();
+#endif
       sdl_refresh(0);
       // If the serial console is enabled, run that too.
       if(sdu_rotary_switch != 1){ sdu_cons_clockpulse(); }
@@ -4430,6 +4583,9 @@ int main(int argc, char *argv[]){
   }
 #ifdef CONFIG_PHYSKBD
   sdu_kbd_init();
+#endif
+#ifdef CONFIG_PHYSKBD
+  sdu_ms_init();
 #endif
 
 #ifdef BURR_BROWN

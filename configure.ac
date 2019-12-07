@@ -43,6 +43,14 @@ AS_IF([test "x$enable_config_physkbd" = "xyes"], [
 	CFLAGS="$CFLAGS -DCONFIG_PHYSKBD"
 	])
 
+# Conditionalize physical mouse support
+AC_ARG_ENABLE([config_physms],
+	[AS_HELP_STRING([--enable-config-physms], [Use physical Mouse Systems mouse @<:@default=no@:>@])])
+
+AS_IF([test "x$enable_config_physms" = "xyes"], [
+	CFLAGS="$CFLAGS -DCONFIG_PHYSMS"
+	])
+
 # Conditionalize cache support
 AC_ARG_ENABLE([config_cache],
 	[AS_HELP_STRING([--enable-config_cache], [Enable Lambda memory cache @<:@default=no@:>@])])

@@ -54,9 +54,11 @@ static uint8_t prom_modelno_string[0x12] = "LAM001 V5.0";
 // Emulator death flag
 extern volatile int ld_die_rq;
 
+#ifndef CONFIG_PHYSMS
 // For mouse callback
 extern uint32_t mouse_x_loc[2];
 extern uint32_t mouse_y_loc[2];
+#endif
 
 #ifdef SHADOW
 // Shadow Memory (Split per processor later)
@@ -2157,9 +2159,11 @@ void handle_destination(int I){
   if(pS[I].Iregister.Destination.A.Flag != 0){
     // A-Memory store
     pS[I].Amemory[pS[I].Iregister.Destination.A.Addr] = pS[I].Obus;
+#ifndef CONFIG_PHYSMS
     if(pS[I].Iregister.Destination.A.Addr == mouse_x_loc[I] || pS[I].Iregister.Destination.A.Addr == mouse_y_loc[I]){
       warp_mouse_callback(I);
     }
+#endif
   }else{
     // A+M-Memory and/or functional destination store
     pS[I].Amemory[pS[I].Iregister.Destination.M.Addr] = pS[I].Obus;
