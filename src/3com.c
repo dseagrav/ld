@@ -814,111 +814,128 @@ void enet_write(uint16_t addr,uint8_t data){
 }
 
 void enet_clock_pulse(){
-  // Ethernet controller maintenance
-  // This wants to be run at 60Hz.
+  // Ethernet controller maintenance/rx loop
   int32_t pktlen = 0;
   int32_t drop = 0;
-  // Ethernet ready to take a packet?
-  if(ETH_MECSR_MEBACK.AMSW == 1 && (ETH_MECSR_MEBACK.ABSW == 1 || ETH_MECSR_MEBACK.BBSW == 1)){
-    // Yes
-    pktlen = ether_rx_pkt();
-    if(pktlen > 0){
-      // We can has packet!
-      pktlen -= 4;
-      // uint16_t hdr = ((pktlen+2)<<1);
-      uint16_t hdr = (pktlen+2);
-      if(hdr&0x01){ hdr++; }
+  // Do we have any packets?
+  pktlen = ether_rx_pkt();
+  if(pktlen > 0){
+    // We can has packet!
+    pktlen -= 4;
+    // Ethernet configured?
+    if(ETH_MECSR_MEBACK.AMSW == 1){
+      // Ethernet ready to take a packet?
+      if(ETH_MECSR_MEBACK.ABSW == 1 || ETH_MECSR_MEBACK.BBSW == 1){
+	// Yes
+	// uint16_t hdr = ((pktlen+2)<<1);
+	uint16_t hdr = (pktlen+2);
+	if(hdr&0x01){ hdr++; }
 #if !defined (HAVE_LINUX_IF_H) && defined (HAVE_NET_BPF_H)
-      // Did we transmit this?
-      if(ether_rx_buf[10] == ETH_Addr_RAM[0] &&
-	 ether_rx_buf[11] == ETH_Addr_RAM[1] &&
-	 ether_rx_buf[12] == ETH_Addr_RAM[2] &&
-	 ether_rx_buf[13] == ETH_Addr_RAM[3] &&
-	 ether_rx_buf[14] == ETH_Addr_RAM[4] &&
-	 ether_rx_buf[15] == ETH_Addr_RAM[5]){
-	// Yes, ignore it.
-	return;
-      }
+	// Did we transmit this?
+	if(ether_rx_buf[10] == ETH_Addr_RAM[0] &&
+	   ether_rx_buf[11] == ETH_Addr_RAM[1] &&
+	   ether_rx_buf[12] == ETH_Addr_RAM[2] &&
+	   ether_rx_buf[13] == ETH_Addr_RAM[3] &&
+	   ether_rx_buf[14] == ETH_Addr_RAM[4] &&
+	   ether_rx_buf[15] == ETH_Addr_RAM[5]){
+	  // Yes, ignore it.
+	  return;
+	}
 #endif
-      // Is it for us?
-      if(!(ether_rx_buf[4] == ETH_Addr_RAM[0] &&
-	   ether_rx_buf[5] == ETH_Addr_RAM[1] &&
-	   ether_rx_buf[6] == ETH_Addr_RAM[2] &&
-	   ether_rx_buf[7] == ETH_Addr_RAM[3] &&
-	   ether_rx_buf[8] == ETH_Addr_RAM[4] &&
-	   ether_rx_buf[9] == ETH_Addr_RAM[5])){
-	// It's not ours
-	hdr |= 0x1000;
-      }
-      // Is this multicast/broadcast?
-      if(ether_rx_buf[4]&0x01){
-	// Yes. Is it broadcast?
-	if(ether_rx_buf[4] == 0xFF &&
-	   ether_rx_buf[5] == 0xFF &&
-	   ether_rx_buf[6] == 0xFF &&
-	   ether_rx_buf[7] == 0xFF &&
-	   ether_rx_buf[8] == 0xFF &&
-	   ether_rx_buf[9] == 0xFF){
-	  // It's a broadcast packet
-	  hdr |= 0x4000;
+	// Is it for us?
+	if(!(ether_rx_buf[4] == ETH_Addr_RAM[0] &&
+	     ether_rx_buf[5] == ETH_Addr_RAM[1] &&
+	     ether_rx_buf[6] == ETH_Addr_RAM[2] &&
+	     ether_rx_buf[7] == ETH_Addr_RAM[3] &&
+	     ether_rx_buf[8] == ETH_Addr_RAM[4] &&
+	     ether_rx_buf[9] == ETH_Addr_RAM[5])){
+	  // It's not ours
+	  hdr |= 0x1000;
+	}
+	// Is this multicast/broadcast?
+	if(ether_rx_buf[4]&0x01){
+	  // Yes. Is it broadcast?
+	  if(ether_rx_buf[4] == 0xFF &&
+	     ether_rx_buf[5] == 0xFF &&
+	     ether_rx_buf[6] == 0xFF &&
+	     ether_rx_buf[7] == 0xFF &&
+	     ether_rx_buf[8] == 0xFF &&
+	     ether_rx_buf[9] == 0xFF){
+	    // It's a broadcast packet
+	    hdr |= 0x4000;
+	  }else{
+	    // It's not a broadcast packet. Are we in broadcast mode?
+	    if(ETH_MECSR_MEBACK.PA < 6){
+	      // Yes, so discard this
+	      drop = 1;
+	      logmsgf(LT_3COM,10,"3COM: DROP PACKET: Not Broadcast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+		      ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9]);
+	    }
+	  }
 	}else{
-	  // It's not a broadcast packet. Are we in broadcast mode?
-	  if(ETH_MECSR_MEBACK.PA < 6){
-	    // Yes, so discard this
-	    drop = 1;
-	    logmsgf(LT_3COM,10,"3COM: DROP PACKET: Not Broadcast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+	  // Not multicast/broadcast.
+	  if(hdr&0x1000 && ETH_MECSR_MEBACK.PA > 2){
+	    // And not mine, and we are not in promisc.
+	    logmsgf(LT_3COM,10,"3COM: DROP PACKET: Not mine or multicast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
 		    ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9]);
+	    drop = 1;
 	  }
 	}
-      }else{
-	// Not multicast/broadcast.
-	if(hdr&0x1000 && ETH_MECSR_MEBACK.PA > 2){
-	  // And not mine, and we are not in promisc.
-	  logmsgf(LT_3COM,10,"3COM: DROP PACKET: Not mine or multicast, DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
-		  ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9]);
-	  drop = 1;
-	}
-      }
-      // 3COM STORES PACKET B FIRST!
-      // Can we put it in B?
-      if(ETH_MECSR_MEBACK.BBSW == 1 && drop == 0){
-	// yes!
-	// Obtain packet
-	memcpy(ETH_RX_Buffer[1]+2,ether_rx_buf+4,pktlen);
-	// Obtain header
-	ETH_RX_Buffer[1][0] = ((hdr&0xFF00)>>8);
-	ETH_RX_Buffer[1][1] = (hdr&0xFF);
-	logmsgf(LT_3COM,10,"3COM: PACKET STORED IN B\n");
-	ETH_MECSR_MEBACK.BBSW = 0; // Now belongs to host
-	if(ETH_MECSR_MEBACK.ABSW == 0){
-	  ETH_MECSR_MEBACK.RBBA = 0; // Packet A is older than packet B.
-	}
-	if(ETH_MECSR_MEBACK.BINTEN != 0){
-	  logmsgf(LT_3COM,10,"3COM: BINTEN SET, INTERRUPTING\n");
-	  multibus_interrupt(0);
-	}
-      }else{
-	// No, can we put it in A?
-	if(ETH_MECSR_MEBACK.ABSW == 1 && drop == 0){
-	  // Yes!
+	// 3COM STORES PACKET B FIRST!
+	// Can we put it in B?
+	if(ETH_MECSR_MEBACK.BBSW == 1 && drop == 0){
+	  // yes!
 	  // Obtain packet
-	  memcpy(ETH_RX_Buffer[0]+2,ether_rx_buf+4,pktlen);
+	  memcpy(ETH_RX_Buffer[1]+2,ether_rx_buf+4,pktlen);
 	  // Obtain header
-	  ETH_RX_Buffer[0][0] = ((hdr&0xFF00)>>8);
-	  ETH_RX_Buffer[0][1] = (hdr&0xFF);
-	  logmsgf(LT_3COM,10,"3COM: PACKET STORED IN A\n");
-	  ETH_MECSR_MEBACK.ABSW = 0; // Now belongs to host
-	  ETH_MECSR_MEBACK.RBBA = 1; // Packet B is older than packet A.
-	  if(ETH_MECSR_MEBACK.AINTEN != 0){
-	    logmsgf(LT_3COM,10,"3COM: AINTEN SET, INTERRUPTING\n");
+	  ETH_RX_Buffer[1][0] = ((hdr&0xFF00)>>8);
+	  ETH_RX_Buffer[1][1] = (hdr&0xFF);
+	  logmsgf(LT_3COM,10,"3COM: PACKET STORED IN B\n");
+	  logmsgf(LT_3COM,10,"3COM:  DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X SRC %.2X:%.2X:%.2X:%.2X:%.2X:%.2X PTYPE %.2X %.2X\n",
+		  ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9],
+		  ether_rx_buf[10],ether_rx_buf[11],ether_rx_buf[12],ether_rx_buf[13],ether_rx_buf[14],ether_rx_buf[15],
+		  ether_rx_buf[16],ether_rx_buf[17]);
+	  ETH_MECSR_MEBACK.BBSW = 0; // Now belongs to host
+	  if(ETH_MECSR_MEBACK.ABSW == 0){
+	    ETH_MECSR_MEBACK.RBBA = 0; // Packet A is older than packet B.
+	  }
+	  if(ETH_MECSR_MEBACK.BINTEN != 0){
+	    logmsgf(LT_3COM,10,"3COM: BINTEN SET, INTERRUPTING\n");
 	    multibus_interrupt(0);
 	  }
 	}else{
-	  // Can't do anything with it! Drop it!
-	  logmsgf(LT_3COM,10,"3COM: PA exclusion, packet dropped: PA mode 0x%X and header word 0x%X\n",
-		  ETH_MECSR_MEBACK.PA,hdr);
+	  // No, can we put it in A?
+	  if(ETH_MECSR_MEBACK.ABSW == 1 && drop == 0){
+	    // Yes!
+	    // Obtain packet
+	    memcpy(ETH_RX_Buffer[0]+2,ether_rx_buf+4,pktlen);
+	    // Obtain header
+	    ETH_RX_Buffer[0][0] = ((hdr&0xFF00)>>8);
+	    ETH_RX_Buffer[0][1] = (hdr&0xFF);
+	    logmsgf(LT_3COM,10,"3COM: PACKET STORED IN A\n");
+	    logmsgf(LT_3COM,10,"3COM:  DST %.2X:%.2X:%.2X:%.2X:%.2X:%.2X SRC %.2X:%.2X:%.2X:%.2X:%.2X:%.2X PTYPE %.2X %.2X\n",
+		    ether_rx_buf[4],ether_rx_buf[5],ether_rx_buf[6],ether_rx_buf[7],ether_rx_buf[8],ether_rx_buf[9],
+		    ether_rx_buf[10],ether_rx_buf[11],ether_rx_buf[12],ether_rx_buf[13],ether_rx_buf[14],ether_rx_buf[15],
+		    ether_rx_buf[16],ether_rx_buf[17]);
+	    ETH_MECSR_MEBACK.ABSW = 0; // Now belongs to host
+	    ETH_MECSR_MEBACK.RBBA = 1; // Packet B is older than packet A.
+	    if(ETH_MECSR_MEBACK.AINTEN != 0){
+	      logmsgf(LT_3COM,10,"3COM: AINTEN SET, INTERRUPTING\n");
+	      multibus_interrupt(0);
+	    }
+	  }else{
+	    // Can't do anything with it! Drop it!
+	    logmsgf(LT_3COM,10,"3COM: PA exclusion, packet dropped: PA mode 0x%X and header word 0x%X\n",
+		    ETH_MECSR_MEBACK.PA,hdr);
+	  }
 	}
+      }else{
+	// Both buffers are busy, drop packet.
+	logmsgf(LT_3COM,10,"3COM: Both buffers belong to host, incoming packet dropped.\n");
       }
+    }else{
+      // Ethernet isn't ready yet. If we don't drop packets, they queue up and make a mess later.
+      logmsgf(LT_3COM,10,"3COM: Ethernet not yet initialized, incoming packet dropped.\n");
     }
   }
 }
@@ -926,10 +943,10 @@ void enet_clock_pulse(){
 // Ethernet controller execution thread
 void *enet_thread(void *arg __attribute__ ((unused))){
   while(ld_die_rq == 0){
-    // The ethernet loop wants to be run at 60Hz.
+    // At the 10Base5 line rate of 10 MBit, we can fit 833.333(repeating) packets on the line in one second.
     enet_clock_pulse();
-    // We don't have to be exact.
-    usleep(16667);
+    // Of course, we'll be thwarted by the scheduler, but...
+    usleep(1200);
   }
   // If we got here, we are dying, so go and die.
   return(NULL);
