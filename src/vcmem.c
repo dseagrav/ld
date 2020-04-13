@@ -162,7 +162,7 @@ void vcmem_clock_pulse(int vn){
 	if(NUbus_Request == VM_WRITE || NUbus_Request == VM_BYTE_WRITE){
 	  logmsgf(LT_VCMEM,10,"VCMEM: Memory Control Reg Write: 0x%X\n",NUbus_Data.word);
 	  vcS[vn].MemoryControl.raw = NUbus_Data.word;
-	  set_bow_mode(vn,vcS[vn].MemoryControl.ReverseVideo ? 1 : 0); // Update black-on-white mode
+	  set_bow_mode(vn,vcS[vn].MemoryControl.ReverseVideo ? 0 : 1); // Update black-on-white mode
 	  NUbus_acknowledge=1;
 	  return;
 	}
@@ -177,7 +177,7 @@ void vcmem_clock_pulse(int vn){
 	if(NUbus_Request == VM_BYTE_WRITE){
 	  logmsgf(LT_VCMEM,10,"VCMEM: Memory Control Reg Hi Byte Write\n");
 	  vcS[vn].MemoryControl.byte[1] = NUbus_Data.byte[1];
-	  set_bow_mode(vn,vcS[vn].MemoryControl.ReverseVideo ? 1 : 0); // Update black-on-white mode
+	  set_bow_mode(vn,vcS[vn].MemoryControl.ReverseVideo ? 0 : 1); // Update black-on-white mode
 	  NUbus_acknowledge=1;
 	  return;
 	}
