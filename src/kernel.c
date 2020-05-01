@@ -1544,7 +1544,7 @@ void warp_mouse_callback(int cp){
 void set_bow_mode(int vn,int mode){
   int i,j;
 
-  if (black_on_white[vn] == mode) {
+  if(black_on_white[vn] == mode){
     // printf("BLACK-ON-WHITE MODE unchanged\n");
     return;                   /* noop */
   }
