@@ -87,9 +87,14 @@ release, see https://github.com/dseagrav/Lambda-system-software
 ## Building LambdaDelta
 
 LambdaDelta uses the GNU auto* tools for configuration and compilation.
-Most features and libraries should be configured automatically.
+Most features and libraries should be configured automatically when
+the `configure` script is run.
 
-If the build fails at first, try `autoreconf -i` and re-try the build.
+To generate the configure script from a git checkout, the usual recipe is
+`aclocal ; autoheader ; autoconf ; automake --add-missing`. Your platform
+may require different invocation(s) of these programs.
+
+If the generated configure script fails, try `autoreconf -i` and re-run it.
 (See dseagrav/ld#6 for the issue.)
 
 If your system has both SDL1 and SDL2, you will be required to explicitly disable
@@ -99,6 +104,11 @@ when running locally.
 
 If you wish to emulate the optional 2x2 configuration, run configure
 with the option `--enable-config-2x2=yes`
+
+If you are in possession of a physical Lambda keyboard and/or mouse,
+you may enable the use of these with the options `--enable-config-physkbd`
+and `--enable-config-physms`. You will need to provide serial interface
+hardware as required to communicate with these items.
 
 After compilation, run-time options are controlled by a configuration
 file. If you have the YAML library installed (and configure found it),
