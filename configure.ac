@@ -43,6 +43,14 @@ AS_IF([test "x$enable_config_physkbd" = "xyes"], [
 	CFLAGS="$CFLAGS -DCONFIG_PHYSKBD"
 	])
 
+# Conditionalize physical mouse support
+AC_ARG_ENABLE([config_physms],
+	[AS_HELP_STRING([--enable-config-physms], [Use physical Mouse Systems mouse @<:@default=no@:>@])])
+
+AS_IF([test "x$enable_config_physms" = "xyes"], [
+	CFLAGS="$CFLAGS -DCONFIG_PHYSMS"
+	])
+
 # Checks for libraries.
 AC_ARG_WITH([SDL1],
 	[AS_HELP_STRING([--with-SDL1],
