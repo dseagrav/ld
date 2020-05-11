@@ -665,8 +665,8 @@ static const char *logtype_name[] = { "SYSTEM",
 
 // SDL items
 // Update rates
-int input_fps = 16667;  // 60 FPS
-int video_fps = 100000; // 10 FPS
+unsigned int input_fps = 16667;  // 60 FPS
+unsigned int video_fps = 100000; // 10 FPS
 int input_frame = 0;    // Frame trigger flag
 int video_frame = 0;    // Frame trigger flag
 // Keyboard buffer
@@ -4348,10 +4348,10 @@ void update_stat_line(){
 // ** THIS IS ALSO THE ONLY PLACE WE CAN DO ANYTHING INVOLVING SDL (BECAUSE SDL) **
 
 void console_exec_loop(){
-  int time_since_vblank = 0;
-  int time_since_video_refresh = 0;
-  int time_since_input_refresh = 0;
-  int time_since_stat_refresh = 0;
+  uint64_t time_since_vblank = 0;
+  uint64_t time_since_video_refresh = 0;
+  uint64_t time_since_input_refresh = 0;
+  uint64_t time_since_stat_refresh = 0;
   struct timespec start_time,this_time,sleep_time;
   uint64_t reference_time = 0;
   uint64_t current_time = 0;
@@ -4369,6 +4369,18 @@ void console_exec_loop(){
     clock_gettime(CLOCK_MONOTONIC,&this_time);
     current_time = (((uint64_t)this_time.tv_sec*1000000000)+this_time.tv_nsec);
     interval_time = (current_time-reference_time)/1000;
+    // If interval time looks stupid, cap it.
+    // 2.5 seconds should be good.
+    if(interval_time > 2500000){
+      logmsgf(LT_SYSTEM,0,"console_exec_loop() clock_gettime() reported preposterous interval (%d microsec), capping it.\n",
+	      interval_time);
+      interval_time = 2500000;
+      // Clobber all outstanding counters just in case
+      time_since_vblank = 0;
+      time_since_video_refresh = 0;
+      time_since_input_refresh = 0;
+      time_since_stat_refresh = 0;
+    }
     time_since_vblank += interval_time;
     time_since_video_refresh += interval_time;
     time_since_input_refresh += interval_time;
