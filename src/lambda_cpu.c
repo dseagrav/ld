@@ -100,6 +100,26 @@ void maybe_take_nubus_mastership(int I){
   }
 }
 
+// Interrupt posting (MAY BE DONE BY THREADS OTHER THAN THE LAMBDA EXECUTION THREAD!)
+void post_lambda_interrupt(int I,int Vector){
+  if(NUbus_trace == 1){
+    logmsgf(LT_LAMBDA,10,"RG: INTERRUPT RQ: Vector %o",Vector);
+  }
+  // Light vector bit if enabled
+  if(pS[I].RG_Mode.Interrupt_Enable != 0){
+    if(pS[I].InterruptStatus[Vector] != 1){
+      pS[I].InterruptStatus[Vector] = 1;
+      pS[I].InterruptPending++;
+    }
+    if(NUbus_trace == 1){
+      logmsgf(LT_LAMBDA,10," ACCEPTED");
+    }
+  }
+  if(NUbus_trace == 1){
+    logmsgf(LT_LAMBDA,10,"\n");
+  }
+}
+
 // Utility functions
 void debug_disassemble_IR(int I);
 void sm_clock_pulse(int I,int clock,volatile Processor_Mode_Reg *oldPMR);
@@ -3220,26 +3240,9 @@ void lambda_nubus_slave(int I){
     if(NUbus_Request == VM_WRITE){
       // Interrupt!
       uint8_t Vector = ((NUbus_Address.Addr>>2)&0xFF);
-      if(NUbus_trace == 1){
-	logmsgf(LT_LAMBDA,10,"RG: INTERRUPT RQ: Vector %o",Vector);
-      }
-      // Light vector bit if enabled
-      if(pS[I].RG_Mode.Interrupt_Enable != 0){
-	if(pS[I].InterruptStatus[Vector] != 1){
-	  pS[I].InterruptStatus[Vector] = 1;
-	  pS[I].InterruptPending++;
-	}
-	if(NUbus_trace == 1){
-	  logmsgf(LT_LAMBDA,10," ACCEPTED");
-	}
-      }
-      if(NUbus_trace == 1){
-	logmsgf(LT_LAMBDA,10,"\n");
-      }
+      post_lambda_interrupt(I,Vector);
       // We got it
       NUbus_acknowledge = 1;
-      // Die for now
-      // pS[I].cpu_die_rq = 1;
       // All done
       return;
     }

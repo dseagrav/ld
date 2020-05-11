@@ -650,3 +650,4 @@ void *lam_thread(void *arg);
 void cache_write_check(int access, int I, uint32_t address, uint32_t data);
 void shadow_write(uint32_t addr,Q data);
 Q shadow_read(uint32_t addr);
+void post_lambda_interrupt(int I,int Vector);

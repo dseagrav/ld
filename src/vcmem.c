@@ -29,6 +29,7 @@
 
 #include "ld.h"
 #include "nubus.h"
+#include "lambda_cpu.h"
 #include "vcmem.h"
 
 // State for two controllers
@@ -69,16 +70,29 @@ void vcmem_kb_int(int vn){
   // but it hasn't been touched yet
   if(vcS[vn].MemoryControl.InterruptEnabled != 0){
     vcS[vn].InterruptStatus.SerialFIFOFull = 1;
-    // Obtain bus
-    take_nubus_mastership();
-    // Issue write
-    nubus_io_request(VM_WRITE,vcS[vn].Card,vcS[vn].InterruptAddr,0xFFFFFFFF);
-    // Await completion or error
-    while(NUbus_Busy != 0 && NUbus_error == 0 && NUbus_acknowledge == 0){
-      nubus_clock_pulse();
+    // Can we cheat?
+    int slot = (vcS[vn].InterruptAddr&0xFF000000)>>24;
+    int addr = (vcS[vn].InterruptAddr&0x00FFFFFF);
+    if((slot == 0xF0 || slot == 0xF4) && (addr >= 0x400 && addr <= 0x7FF)){
+      // Yes!
+      int I = 0;
+      if(slot == 0xF4){ I = 1; }
+      int Vector = (vcS[vn].InterruptAddr>>2)&0xFF;
+      post_lambda_interrupt(I,Vector);
+      logmsgf(LT_VCMEM,10,"VCMEM %d: Fast KB Int generated to lam %d vec %d\n",vn,I,Vector);
+    }else{
+      // Obtain bus
+      take_nubus_mastership();
+      // Issue write
+      nubus_io_request(VM_WRITE,vcS[vn].Card,vcS[vn].InterruptAddr,0xFFFFFFFF);
+      // Await completion or error
+      while(NUbus_Busy != 0 && NUbus_error == 0 && NUbus_acknowledge == 0){
+	nubus_clock_pulse();
+      }
+      // Release bus
+      release_nubus_mastership();
     }
-    // Release bus
-    release_nubus_mastership();
+    // logmsgf(LT_VCMEM,10,"VCMEM %d: KB Int generated\n",vn);
   }
 }
 //  has last write whatsoever (except 0 and 0x70)
@@ -91,17 +105,29 @@ void vcmem_vblank(int vn){
   if(vcS[vn].MemoryControl.InterruptEnabled != 0){
     // Vertical Blank
     vcS[vn].InterruptStatus.VerticalBlank = 1;
-    // Obtain bus
-    take_nubus_mastership();
-    // Issue the write
-    nubus_io_request(VM_WRITE,vcS[vn].Card,vcS[vn].InterruptAddr,0xFFFFFFFF);
-    // Await completion or error
-    while(NUbus_Busy != 0 && NUbus_error == 0 && NUbus_acknowledge == 0){
-      nubus_clock_pulse();
+    // Can we cheat?
+    int slot = (vcS[vn].InterruptAddr&0xFF000000)>>24;
+    int addr = (vcS[vn].InterruptAddr&0x00FFFFFF);
+    if((slot == 0xF0 || slot == 0xF4) && (addr >= 0x400 && addr <= 0x7FF)){
+      // Yes!
+      int I = 0;
+      if(slot == 0xF4){ I = 1; }
+      int Vector = (vcS[vn].InterruptAddr>>2)&0xFF;
+      post_lambda_interrupt(I,Vector);
+      // logmsgf(LT_VCMEM,10,"VCMEM %d: Fast VB Int generated to lam %d vec %d\n",vn,I,Vector);
+    }else{
+      // Obtain bus
+      take_nubus_mastership();
+      // Issue the write
+      nubus_io_request(VM_WRITE,vcS[vn].Card,vcS[vn].InterruptAddr,0xFFFFFFFF);
+      // Await completion or error
+      while(NUbus_Busy != 0 && NUbus_error == 0 && NUbus_acknowledge == 0){
+	nubus_clock_pulse();
+      }
+      // Release bus
+      release_nubus_mastership();
+      // logmsgf(LT_VCMEM,10,"VCMEM %d: Slow VB Int generated to 0x%.8X\n",vn,vcS[vn].InterruptAddr);
     }
-    // Release bus
-    release_nubus_mastership();
-    // logmsgf(LT_VCMEM,,"VCMEM: VB Int generated\n");
   }else{
     vcS[vn].cycle_count = 0; // No interrupt, carry on
   }
