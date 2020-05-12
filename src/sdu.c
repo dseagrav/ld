@@ -38,6 +38,8 @@
 #include "ld.h"
 #include "nubus.h"
 #include "lambda_cpu.h"
+#include "mem.h"
+#include "vcmem.h"
 #include "sdu.h"
 #include "sdu_hw.h"
 #include "tapemaster.h"
@@ -1145,6 +1147,44 @@ uint16_t multibus_word_read(mbAddr addr){
        MNB_Addr.Card != 0xFA && MNB_Addr.Card != 0xFC){
       logmsgf(LT_MULTIBUS,10,"MULTIBUS Word Addr 0x%X => NUBUS Addr 0x%X\n",addr.raw,MNB_Addr.raw);
     }
+    // Are we accessing RAM?
+    if(MNB_Addr.Card == 0xF9
+#ifdef CONFIG_2X2
+       || MNB_Addr.Card == 0xFC
+#endif
+       ){
+      // RAM: Are we within RAM range?
+      if(MNB_Addr.Addr <= 0xFFF000){
+	// Yes! Perform (half)word read.
+	int Card = 0;
+#ifdef CONFIG_2X2
+	extern uint8_t MEM_RAM[2][0xFFF000];
+#else
+	extern uint8_t MEM_RAM[1][0xFFF000];
+#endif
+	if(MNB_Addr.Card == 0xFC){ Card = 1; }
+	uint16_t result = *(uint16_t *)(MEM_RAM[Card]+MNB_Addr.Addr);
+	return(result);
+      }
+    }else{
+      // Are we accessing VCMEM?
+      if(MNB_Addr.Card == 0xF8
+#ifdef CONFIG_2X2
+	 || MNB_Addr.Card == 0xFA
+#endif
+	 ){
+	// VCMEM: Are we within VRAM range?
+	if(MNB_Addr.Addr >= 0x20000 && MNB_Addr.Addr <= 0x3FFFF){
+	  // Yes! Perform (half)word read.
+	  extern struct vcmemState vcS[2];
+	  uint32_t FBAddr = MNB_Addr.Addr-0x20000;
+	  int Card = 0;
+	  if(MNB_Addr.Card == 0xFA){ Card = 1; }
+	  uint16_t result = *(uint16_t *)(vcS[Card].AMemory+FBAddr);
+	  return(result);
+	}
+      }
+    }
     // Obtain bus if we don't already have it
     take_nubus_mastership();
     // Place request on bus, lighting the low bit to indicate halfword-ness
@@ -1208,6 +1248,44 @@ uint8_t multibus_read(mbAddr addr){
     if(MNB_Addr.Card != 0xF8 && MNB_Addr.Card != 0xF9 &&
        MNB_Addr.Card != 0xFA && MNB_Addr.Card != 0xFC){
       logmsgf(LT_MULTIBUS,10,"MULTIBUS Addr 0x%X => NUBUS Addr 0x%X\n",addr.raw,MNB_Addr.raw);
+    }
+    // Are we accessing RAM?
+    if(MNB_Addr.Card == 0xF9
+#ifdef CONFIG_2X2
+       || MNB_Addr.Card == 0xFC
+#endif
+       ){
+      // RAM: Are we within RAM range?
+      if(MNB_Addr.Addr <= 0xFFF000){
+	// Yes! Perform byte read.
+	int Card = 0;
+#ifdef CONFIG_2X2
+	extern uint8_t MEM_RAM[2][0xFFF000];
+#else
+	extern uint8_t MEM_RAM[1][0xFFF000];
+#endif
+	if(MNB_Addr.Card == 0xFC){ Card = 1; }
+	uint8_t result = *(uint8_t *)(MEM_RAM[Card]+MNB_Addr.Addr);
+	return(result);
+      }
+    }else{
+      // Are we accessing VCMEM?
+      if(MNB_Addr.Card == 0xF8
+#ifdef CONFIG_2X2
+	 || MNB_Addr.Card == 0xFA
+#endif
+	 ){
+	// VCMEM: Are we within VRAM range?
+	if(MNB_Addr.Addr >= 0x20000 && MNB_Addr.Addr <= 0x3FFFF){
+	  // Yes! Perform byte read.
+	  extern struct vcmemState vcS[2];
+	  uint32_t FBAddr = MNB_Addr.Addr-0x20000;
+	  int Card = 0;
+	  if(MNB_Addr.Card == 0xFA){ Card = 1; }
+	  uint8_t result = *(uint8_t *)(vcS[Card].AMemory+FBAddr);
+	  return(result);
+	}
+      }
     }
     // Obtain bus if we don't already have it
     take_nubus_mastership();
@@ -1535,6 +1613,71 @@ void multibus_word_write(mbAddr addr,uint16_t data){
        MNB_Addr.Card != 0xFA && MNB_Addr.Card != 0xFC){
       logmsgf(LT_MULTIBUS,10,"MULTIBUS Word Addr 0x%X => NUBUS Addr 0x%X\n",addr.raw,MNB_Addr.raw);
     }
+    // Are we accessing RAM?
+    if(MNB_Addr.Card == 0xF9
+#ifdef CONFIG_2X2
+       || MNB_Addr.Card == 0xFC
+#endif
+       ){
+      // RAM: Are we within RAM range?
+      if(MNB_Addr.Addr <= 0xFFF000){
+	// Yes! Perform (half)word write.
+	int Card = 0;
+#ifdef CONFIG_2X2
+	extern uint8_t MEM_RAM[2][0xFFF000];
+#else
+	extern uint8_t MEM_RAM[1][0xFFF000];
+#endif
+	if(MNB_Addr.Card == 0xFC){ Card = 1; }
+	*(uint16_t *)(MEM_RAM[Card]+MNB_Addr.Addr) = data;
+	return;
+      }
+    }else{
+      // Are we accessing VCMEM?
+      if(MNB_Addr.Card == 0xF8
+#ifdef CONFIG_2X2
+	 || MNB_Addr.Card == 0xFA
+#endif
+	 ){
+	// VCMEM: Are we within VRAM range?
+	if(MNB_Addr.Addr >= 0x20000 && MNB_Addr.Addr <= 0x3FFFF){
+	  // Yes! Perform (half)word write.
+	  extern struct vcmemState vcS[2];
+	  uint32_t FBAddr = MNB_Addr.Addr-0x20000;
+	  int Card = 0;
+	  if(MNB_Addr.Card == 0xFA){ Card = 1; }
+	  switch(vcS[Card].Function.Function){
+	  case 0: // XOR
+	    *(uint16_t *)(vcS[Card].AMemory+FBAddr) ^= data; break;
+	  case 1: // OR
+	    *(uint16_t *)(vcS[Card].AMemory+FBAddr) |= data; break;
+	  case 2: // AND
+	    *(uint16_t *)(vcS[Card].AMemory+FBAddr) &= data; break;
+	  case 3: // STORE
+	    *(uint16_t *)(vcS[Card].AMemory+FBAddr) = data; break;
+	  }
+	  framebuffer_update_hword(Card,FBAddr,vcS[Card].AMemory[FBAddr]);
+	  return;
+	}
+      }else{
+	// Are we accessing a Lambda?
+	if(MNB_Addr.Card == 0xF0
+#ifdef CONFIG_2X2
+	   || MNB_Addr.Card == 0xF4
+#endif
+	   ){
+	  // LAMBDA: Are we posting an interrupt?
+	  if(MNB_Addr.Addr >= 0x400 && MNB_Addr.Addr <= 0x7FF){
+	    // Yes!
+	    int I = 0;
+	    if(MNB_Addr.Card == 0xF4){ I = 1; }
+	    int Vector = (MNB_Addr.Addr>>2)&0xFF;
+	    post_lambda_interrupt(I,Vector);
+	    return;
+	  }
+	}
+      }
+    }
     // Obtain bus if we don't already have it
     take_nubus_mastership();
     // Place request on bus
@@ -1584,6 +1727,71 @@ void multibus_write(mbAddr addr,uint8_t data){
     if(MNB_Addr.Card != 0xF8 && MNB_Addr.Card != 0xF9 &&
        MNB_Addr.Card != 0xFA && MNB_Addr.Card != 0xFC){
       logmsgf(LT_MULTIBUS,10,"MULTIBUS Addr 0x%X => NUBUS Addr 0x%X\n",addr.raw,MNB_Addr.raw);
+    }
+    // Are we accessing RAM?
+    if(MNB_Addr.Card == 0xF9
+#ifdef CONFIG_2X2
+       || MNB_Addr.Card == 0xFC
+#endif
+       ){
+      // RAM: Are we within RAM range?
+      if(MNB_Addr.Addr <= 0xFFF000){
+	// Yes! Perform byte write.
+	int Card = 0;
+#ifdef CONFIG_2X2
+	extern uint8_t MEM_RAM[2][0xFFF000];
+#else
+	extern uint8_t MEM_RAM[1][0xFFF000];
+#endif
+	if(MNB_Addr.Card == 0xFC){ Card = 1; }
+	*(uint8_t *)(MEM_RAM[Card]+MNB_Addr.Addr) = data;
+	return;
+      }
+    }else{
+      // Are we accessing VCMEM?
+      if(MNB_Addr.Card == 0xF8
+#ifdef CONFIG_2X2
+	 || MNB_Addr.Card == 0xFA
+#endif
+	 ){
+	// VCMEM: Are we within VRAM range?
+	if(MNB_Addr.Addr >= 0x20000 && MNB_Addr.Addr <= 0x3FFFF){
+	  // Yes! Perform byte write.
+	  extern struct vcmemState vcS[2];
+	  uint32_t FBAddr = MNB_Addr.Addr-0x20000;
+	  int Card = 0;
+	  if(MNB_Addr.Card == 0xFA){ Card = 1; }
+	  switch(vcS[Card].Function.Function){
+	  case 0: // XOR
+	    *(uint8_t *)(vcS[Card].AMemory+FBAddr) ^= data; break;
+	  case 1: // OR
+	    *(uint8_t *)(vcS[Card].AMemory+FBAddr) |= data; break;
+	  case 2: // AND
+	    *(uint8_t *)(vcS[Card].AMemory+FBAddr) &= data; break;
+	  case 3: // STORE
+	    *(uint8_t *)(vcS[Card].AMemory+FBAddr) = data; break;
+	  }
+	  framebuffer_update_byte(Card,FBAddr,vcS[Card].AMemory[FBAddr]);
+	  return;
+	}
+      }else{
+	// Are we accessing a Lambda?
+	if(MNB_Addr.Card == 0xF0
+#ifdef CONFIG_2X2
+	   || MNB_Addr.Card == 0xF4
+#endif
+	   ){
+	  // LAMBDA: Are we posting an interrupt?
+	  if(MNB_Addr.Addr >= 0x400 && MNB_Addr.Addr <= 0x7FF){
+	    // Yes!
+	    int I = 0;
+	    if(MNB_Addr.Card == 0xF4){ I = 1; }
+	    int Vector = (MNB_Addr.Addr>>2)&0xFF;
+	    post_lambda_interrupt(I,Vector);
+	    return;
+	  }
+	}
+      }
     }
     // Obtain bus if we don't already have it
     take_nubus_mastership();
@@ -3268,7 +3476,11 @@ void dump_lisp_start_state(int I){
   system_configuration_qs *sys_conf = 0;
   processor_configuration_qs *proc_conf = 0;
   int x;
-  extern unsigned char MEM_RAM[2][0x800000];
+#ifdef CONFIG_2X2
+  extern uint8_t MEM_RAM[2][0xFFF000];
+#else
+  extern uint8_t MEM_RAM[1][0xFFF000];
+#endif
   // Obtain proc conf base from Q
   proc_conf_base = pS[I].Qregister;
   logmsgf(LT_LISP,2,"LISP: PROC %d CONF BASE = 0x%X\n",I,proc_conf_base);
