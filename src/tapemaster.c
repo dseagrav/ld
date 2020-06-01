@@ -19,6 +19,7 @@
 */
 
 /* Tapemaster controller */
+#include "config.h"
 
 #include <stdio.h>
 #include <sys/types.h>
@@ -32,6 +33,10 @@
 #include <string.h>
 #include <strings.h>
 #include <dirent.h>
+
+#ifdef HAVE_YAML_H
+#include <yaml.h>
+#endif
 
 #include "ld.h"
 #include "nubus.h"

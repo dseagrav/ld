@@ -135,6 +135,7 @@ AC_CHECK_HEADERS([linux/if_tun.h], [], [],
 #endif
 ]])
 AC_CHECK_HEADERS([net/bpf.h])
+AC_CHECK_HEADERS([mach/mach.h])
 
 # Check for structure members
 AC_CHECK_MEMBERS([struct stat.st_blksize])

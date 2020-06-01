@@ -36,6 +36,14 @@ void framebuffer_update_hword(int vn,uint32_t addr,uint16_t data);
 void framebuffer_update_byte(int vn,uint32_t addr,uint8_t data);
 void set_bow_mode(int vn,int mode);
 
+// DSM20200509
+// Mac OS X versions prior to 10.12 ("Sierra") lack clock_gettime
+#if defined (__MACH__) && ! defined (HAVE_CLOCK_GETTIME) && ! defined (CLOCK_MONOTONIC)
+// #define CLOCK_REALTIME 0
+#define CLOCK_MONOTONIC 1
+void clock_gettime (int clk_id, struct timespec *ts);
+#endif
+
 #if defined(XBEEP) || defined(CONFIG_PHYSKBD)
 // xbeep and/or physkbd beep
 void xbeep(int halfwavelength, int duration);

@@ -663,6 +663,24 @@ static const char *logtype_name[] = { "SYSTEM",
 				      "MEM",
 				      "LISP" };
 
+// DSM20200509
+// Mac OS X versions prior to 10.12 ("Sierra") lack clock_gettime
+#if defined (__MACH__) && ! defined (HAVE_CLOCK_GETTIME)
+#include <mach/clock.h>
+#include <mach/mach.h>
+
+void clock_gettime (int clk_id, struct timespec *ts) {
+  // Rashly assume clk_id == CLOCK_MONOTONIC
+  clock_serv_t cclock;
+  mach_timespec_t mts;
+  host_get_clock_service (mach_host_self (), CALENDAR_CLOCK, &cclock);
+  clock_get_time (cclock, &mts);
+  mach_port_deallocate (mach_task_self (), cclock);
+  ts->tv_sec = mts.tv_sec;
+  ts->tv_nsec = mts.tv_nsec;
+}
+#endif /* defined (__MACH__) && ! defined (HAVE_CLOCK_GETTIME) */
+
 // SDL items
 // Update rates
 unsigned int input_fps = 16667;  // 60 FPS

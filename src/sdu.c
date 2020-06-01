@@ -1652,7 +1652,7 @@ void multibus_word_write(mbAddr addr,uint16_t data){
 	  case 1: // OR
 	    *(uint16_t *)(vcS[Card].AMemory+FBAddr) |= data; break;
 	  case 2: // AND
-	    *(uint16_t *)(vcS[Card].AMemory+FBAddr) &= data; break;
+	    *(uint16_t *)(vcS[Card].AMemory+FBAddr) &= ~data; break;
 	  case 3: // STORE
 	    *(uint16_t *)(vcS[Card].AMemory+FBAddr) = data; break;
 	  }
@@ -1767,7 +1767,7 @@ void multibus_write(mbAddr addr,uint8_t data){
 	  case 1: // OR
 	    *(uint8_t *)(vcS[Card].AMemory+FBAddr) |= data; break;
 	  case 2: // AND
-	    *(uint8_t *)(vcS[Card].AMemory+FBAddr) &= data; break;
+	    *(uint8_t *)(vcS[Card].AMemory+FBAddr) &= ~data; break;
 	  case 3: // STORE
 	    *(uint8_t *)(vcS[Card].AMemory+FBAddr) = data; break;
 	  }
