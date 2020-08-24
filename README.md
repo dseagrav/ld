@@ -79,10 +79,7 @@ either a disk image of an installed system or images of the installation
 and source tapes. At the time of release, these items are available from
 Bitsavers. See http://www.bitsavers.org/ for more information.
 
-A prototype Release 5.0 system software distribution is available at 
-https://s3.us-east-2.amazonaws.com/ds.storage.0000/Lambda-Release5.tar.gz
-A Github repository has been set up to track issues and changes for this
-release, see https://github.com/dseagrav/Lambda-system-software
+Bogodyne ZetaLisp System 500.0 Release 1 can be found at https://www.bogodyne.com/download/download-zetalisp/
 
 ## Building LambdaDelta
 
@@ -199,7 +196,7 @@ All other keys on the keyboard may be remapped using the map_key option
 described above. The standard mapping preserves the printed key label
 of the standard typewriter keys. The other keys are mapped as follows:
 
-| HOST KEY   | LAMBDA KEY  | NOTES                                  |
+| HOST KEY   | LISPM KEY   | NOTES                                  |
 |------------|-------------|----------------------------------------|
 | [          | (           | [ is the shift state, ( is unshifted   |
 | ]          | )           | ] is the shift state, ) is unshifted   |
@@ -304,7 +301,7 @@ to provide symbols for debugging. These are optional.
 
 20. At the `Command:` prompt, give the command `boot` to start lisp.
 
-21. When the REPL arrives, evaluate `(si:set-pack-name "LAMBDA-A")` to set
+21. When the REPL arrives, evaluate `(si:set-pack-name "LISPM-A")` to set
     the hostname.
 
 22. Evaluate `(si:%halt)` to halt Lisp.
