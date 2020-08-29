@@ -55,6 +55,14 @@ video:
   # polarity switch is taken into consideration.
   pixel-on: 0xFFFFFFFF
   pixel-off: 0x00000000
+  # window height. 800 is the default, and the other useful value is 1024 (to get larger, microcode changes are needed).
+  # Use (TV:SET-CONSOLE-SIZE width height) to change the LispM view.
+  height: 800
+
+# Audio settings, only available when using SDL2 (where BEEP is implemented)
+audio: 
+  # Volume factor, from 0.0 to 1.0. I like 0.3.
+  volume: 1.0
 
 # Mouse settings
 mouse:
