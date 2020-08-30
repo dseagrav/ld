@@ -3572,8 +3572,15 @@ int yaml_keyboard_sequence_loop(yaml_parser_t *parser){
       break;
     case YAML_MAPPING_END_EVENT:
       // Map entry end. Do it.
-      map_key(sval,dval);
-      printf("keyboard: Mapped SDL keycode %d to Lambda keycode 0%o\n",sval,dval);      
+      if ((sval != 0) && (dval > 0)) {
+	map_key(sval,dval);
+#ifdef SDL2
+	printf("keyboard: Mapped SDL keycode %d (%s) to Lambda keycode %#o (%s)\n",
+	       sval, SDL_GetScancodeName(sval), dval, lm_key_names[dval].lmkey_name);
+#else
+	printf("keyboard: Mapped SDL keycode %d to Lambda keycode %#o (%s)\n",sval,dval, lm_key_names[dval].lmkey_name);
+#endif
+      }
       break;
     case YAML_ALIAS_EVENT:
       printf("Unexpected alias (anchor %s)\n", event.data.alias.anchor);
@@ -3587,14 +3594,38 @@ int yaml_keyboard_sequence_loop(yaml_parser_t *parser){
 	// printf("keyboard: key %s = value %s\n",key,value);
         if(strcmp(key,"sdl") == 0){
 	  sval = atoi(value);
+#ifdef SDL2
+	  // Parse SDL key names (could be implemented for SDL1 separately, standard for SDL2)
+	  if (sval == 0) {
+	    // SDL key names sometimes have space in them (keypad X, left/right X) so replace _ by ' '
+	    char *usc;
+	    while ((usc = strchr(value,'_')) != NULL)
+	      *usc = ' ';
+	    // this also finds "0", just in case...
+	    sval = SDL_GetScancodeFromName(value);
+	    if (sval == SDL_SCANCODE_UNKNOWN) {
+	      printf("keyboard: mapping: sdl: unknown SDL scancode '%s'\n", value);
+	      goto value_done;
+	    }
+	  }
+#endif
 	  goto value_done;
 	}
 	if(strcmp(key,"lambda") == 0){
 	  dval = strtol(value,NULL,8);
+	  if (dval == 0) {
+	    // Not a number: try parsing a Lispm key name instead
+	    dval = find_lm_key_named(value);
+	    if (dval == -1) {
+	      printf("keyboard: map: unknown Lambda key '%s'\n", value);
+	      goto value_done;
+	    }
+	  }
 	  goto value_done;
+	} else {
+	  printf("keyboard: Unknown key %s (value %s)\n",key,value);
+	  return(-1);
 	}
-        printf("keyboard: Unknown key %s (value %s)\n",key,value);
-	return(-1);
 	// Done
       value_done:
 	key[0] = 0;
@@ -3700,11 +3731,52 @@ int yaml_keyboard_mapping_loop(yaml_parser_t *parser){
 	if(strcmp(key,"map") == 0){
 	  if(value[0] != 0){	    
 	    int sval = atoi(value);
-	    char *tok = strtok(value," \r\n");
+#ifdef SDL2
+	    // Parse SDL key names (could be implemented for SDL1 separately, standard for SDL2)
+	    if (sval == 0) {
+	      char *sdlk = strdup(value);
+	      char *space = strchr(sdlk, ' ');
+	      if (space)
+		*space = '\0';
+	      // SDL key names sometimes have space in them (keypad X, left/right X) so replace _ by ' '
+	      char *usc;
+	      while ((usc = strchr(sdlk,'_')) != NULL)
+		*usc = ' ';
+	      // this also finds "0", just in case...
+	      sval = SDL_GetScancodeFromName(sdlk);
+	      free(sdlk);
+	      if (sval == SDL_SCANCODE_UNKNOWN) {
+		printf("keyboard: map: unknown SDL scancode '%s'\n", sdlk);
+		goto value_done;
+	      }
+	    }
+#endif
+	    char *tok = strchr(value, ' ');
+	    if (tok == NULL) {
+	      printf("keyboard: map: missing Lambda key\n");
+	      goto value_done;
+	    }
+	    while (*tok == ' ')
+	      tok++;
 	    if(tok != NULL){
 	      int dval = strtol(tok,NULL,8);
-	      map_key(sval,dval);
-	      printf("keyboard: Mapped SDL keycode %d to Lambda keycode 0%o\n",sval,dval);
+	      if (dval == 0) {
+		// Not a number: try parsing a Lispm key name instead
+		dval = find_lm_key_named(tok);
+		if (dval == -1) {
+		  printf("keyboard: map: unknown Lambda key '%s'\n", tok);
+		  goto value_done;
+		}
+	      }
+	      if ((sval != 0) && (dval > 0)) {
+		map_key(sval,dval); 
+#ifdef SDL2
+		printf("keyboard: Mapped SDL keycode %d (%s) to Lambda keycode %#o (%s)\n",
+		       sval, SDL_GetScancodeName(sval), dval, lm_key_names[dval].lmkey_name);
+#else
+		printf("keyboard: Mapped SDL keycode %d to Lambda keycode %#o (%s)\n",sval,dval, lm_key_names[dval].lmkey_name);
+#endif
+	      }
 	    }else{
 	      printf("keyboard: map: Missing octal Lambda key code.\n");
 	    }

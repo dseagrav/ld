@@ -27,12 +27,15 @@ keyboard:
   quit: on
   # keyboard/mouse input frame rate
   input_fps: 60
-  # Map decimal SDL keycode "foo" (see the SDL documentation)
-  # to octal Lambda keycode "bar" (see doc/KEYCODES)
+  # Map decimal SDL keycode or key name "foo" (see the SDL documentation)
+  # to octal Lambda keycode or key name "bar" (see doc/KEYCODES)
   map: foo bar
+  map: F8 Page
   # Mapping as a sequence can also go here
   # Values as above
   mapping:
+    - sdl: F8
+      lambda: Page
     - sdl: x
       lambda: a
     - sdl: y
