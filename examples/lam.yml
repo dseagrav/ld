@@ -27,12 +27,15 @@ keyboard:
   quit: on
   # keyboard/mouse input frame rate
   input_fps: 60
-  # Map decimal SDL keycode "foo" (see the SDL documentation)
-  # to octal Lambda keycode "bar" (see doc/KEYCODES)
+  # Map decimal SDL keycode or key name "foo" (see the SDL documentation)
+  # to octal Lambda keycode or key name "bar" (see doc/KEYCODES)
   map: foo bar
+  map: F8 Page
   # Mapping as a sequence can also go here
   # Values as above
   mapping:
+    - sdl: F8
+      lambda: Page
     - sdl: x
       lambda: a
     - sdl: y
@@ -55,6 +58,14 @@ video:
   # polarity switch is taken into consideration.
   pixel-on: 0xFFFFFFFF
   pixel-off: 0x00000000
+  # window height. 800 is the default, and the other useful value is 1024 (to get larger, microcode changes are needed).
+  # Use (TV:SET-CONSOLE-SIZE width height) to change the LispM view.
+  height: 800
+
+# Audio settings, only available when using SDL2 (where BEEP is implemented)
+audio: 
+  # Volume factor, from 0.0 to 1.0. I like 0.3.
+  volume: 1.0
 
 # Mouse settings
 mouse:
