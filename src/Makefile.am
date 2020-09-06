@@ -7,4 +7,4 @@ lam_SOURCES = 3com.c lambda_cpu.c mem.c sdu.c smd.c tapemaster.c kernel.c nubus.
 
 lpart_SOURCES = lpart.c
 
-lam_LDFLAGS = -lm
+lam_LDADD = -lm
