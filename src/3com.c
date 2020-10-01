@@ -113,7 +113,7 @@ uint32_t eth_cycle_count;
 extern int ld_die_rq;
 
 // Linux tuntap interface
-char ether_iface[30] = "ldtap";
+char ether_iface[IFNAMSIZ] = "ldtap";
 unsigned char ether_addr[6] = {0x00,0x02,0x9C,0x55,0x89,0xC6};
 int pkt_count = 0;
 int ether_fd = -1;
@@ -186,7 +186,7 @@ uint32_t ether_rx_pkt(){
 #if !defined (USES_ETHER_CODE) && defined (HAVE_NET_BPF_H)
 #define USES_ETHER_CODE "BPF"
 
-char ether_bpfn[64];
+char ether_bpfn[PATH_MAX];
 #ifdef USE_UTUN
 // For tunnel frame diverter hack
 char guest_ip_addr[32] = "";
@@ -979,7 +979,7 @@ int yaml_network_mapping_loop(yaml_parser_t *parser){
       }else{
 	strncpy(value,(const char *)event.data.scalar.value,128);
         if(strcmp(key,"interface") == 0){
-	  strncpy(ether_iface,value,30);
+	  strncpy(ether_iface,value,sizeof(ether_iface));
 	  logmsgf(LT_3COM,0,"Using 3Com Ethernet interface %s\n",ether_iface);	  
 	  goto value_done;
 	}

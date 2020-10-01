@@ -32,6 +32,7 @@
 #include <string.h>
 #include <strings.h>
 #include <dirent.h>
+#include <limits.h>
 
 #include "ld.h"
 #include "nubus.h"
@@ -44,7 +45,7 @@ int tape_fm = 0;             // At filemark
 int tape_reclen = 0;         // Tape record length
 int tape_error = 0;          // Tapemaster error code
 uint8_t tape_block[64*1024]; // Tape block buffer
-char tape_fn[32] = "None";   // Current tape filename
+char tape_fn[PATH_MAX] = "None";   // Current tape filename
 int tape_file_sel = -1;      // Tape file selector
 
 // Structures and such
@@ -192,7 +193,7 @@ int tapemaster_open_next(){
   if(tape_fd != -1){
     logmsgf(LT_TAPEMASTER,1,"TM: Closing file %s\n",tape_fn);
     close(tape_fd);
-    strncpy(tape_fn,"None",32);
+    strncpy(tape_fn,"None",sizeof(tape_fn));
     tape_fd = -1;
     tape_bot = 0;
     tape_eot = 0;
@@ -209,19 +210,19 @@ int tapemaster_open_next(){
     tape_file_sel = -1;
     return(-1);
   }else{
-    char fn[256] = "./tapes/";
+    char fn[PATH_MAX] = "./tapes/";
     if(n == 0){ tape_file_sel = -1; return(-1); } // No files
     if(tape_file_sel >= n){ tape_file_sel = 0; }
     // Attempt open
-    strncat(fn,namelist[tape_file_sel]->d_name,255);
+    strncat(fn,namelist[tape_file_sel]->d_name,PATH_MAX);
     tape_fd = open(fn,O_RDWR);
     if(tape_fd < 0){
-      char emsg[256] = "open(): ";
-      strncat(emsg,fn,255);
+      char emsg[PATH_MAX+8] = "open(): ";
+      strncat(emsg,fn,PATH_MAX);
       perror(emsg);
       tape_fd = -1;
     }else{
-      strncpy(tape_fn,namelist[tape_file_sel]->d_name,32);
+      strncpy(tape_fn,namelist[tape_file_sel]->d_name,PATH_MAX);
       logmsgf(LT_TAPEMASTER,1,"TM: Opened file %s\n",tape_fn);
       tape_bot = 1;
       tape_eot = 0;

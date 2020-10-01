@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
+#include <limits.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -42,6 +43,8 @@
 #include <netinet/in.h>
 #include <netdb.h> 
 #include <sys/socket.h>
+
+#include <net/if.h>
 
 #ifdef HAVE_YAML_H
 // YAML
@@ -108,12 +111,12 @@ int debug_log_enable = 0;
 int debug_log_trigger = 0;
 int dump_seq = 0;
 #ifdef CONFIG_PHYSKBD
-char kbd_filename[128] = {"/dev/ttyS0"}; // File name for physical keyboard serial port
+char kbd_filename[PATH_MAX] = {"/dev/ttyS0"}; // File name for physical keyboard serial port
 int kbd_fd = -1;                         // File desc for physical keyboard serial port
 speed_t kbd_baudrate = B9600;            // Baud rate for physical keyboard serial port
 #endif
 #ifdef CONFIG_PHYSMS
-char ms_filename[128] = {"/dev/ttyS0"}; // File name for physical mouse serial port
+char ms_filename[PATH_MAX] = {"/dev/ttyS0"}; // File name for physical mouse serial port
 int ms_fd = -1;                         // File desc for physical mouse serial port
 speed_t ms_baudrate = B1200;            // Baud rate for physical mouse serial port
 #endif
@@ -346,7 +349,7 @@ int video_height = DEFAULT_VIDEO_HEIGHT;
 // Debug state and interface
 uint8_t debug_target_mode = 0;
 uint8_t debug_master_mode = 0;
-char debug_target_host[128] = "localhost";
+char debug_target_host[MAXHOSTNAMELEN] = "localhost";
 uint8_t debug_io_state = 0;
 uint8_t debug_rx_buf[64];
 uint32_t debug_last_addr = 0;
@@ -1910,114 +1913,12 @@ void framebuffer_update_byte(int vn,uint32_t addr,uint8_t data){
 
 #endif /* SDL2 code */
 
-void read_sdu_rom(){
-  extern uint8_t SDU_ROM[];
-  int rom_fd = open("roms/SDU.ROM",O_RDONLY);
-  if(rom_fd < 0){
-    perror("SDU:open");
-    exit(-1);
-  }else{
-    ssize_t rv=0;
-    rv = read(rom_fd,SDU_ROM,64*1024);
-    if(rv != (64*1024)){
-      perror("SDU:read");
-      exit(-1);
-    }
-    close(rom_fd);
-  }
-}
-
-void read_vcmem_rom(){
-  extern uint8_t VCMEM_ROM[];
-  int rom_fd = open("roms/VCMEM.ROM",O_RDONLY);
-  if(rom_fd < 0){
-    perror("VCMEM:open");
-    exit(-1);
-  }else{
-    ssize_t rv=0;
-    rv = read(rom_fd,VCMEM_ROM,2048);
-    if(rv != 2048){
-      perror("VCMEM:read");
-      exit(-1);
-    }
-    close(rom_fd);
-  }
-}
-
-void read_nvram(){
-  extern uint8_t CMOS_RAM[];
-  int cmos_fd = open("CMOS.RAM",O_RDONLY);
-  if(cmos_fd < 0){
-    perror("CMOS:open");
-  }else{
-    ssize_t rv=0;
-    rv = read(cmos_fd,CMOS_RAM,2048);
-    if(rv != 2048){
-      perror("CMOS:read");
-    }
-    close(cmos_fd);
-  }
-}
-
-void write_nvram(){
-  extern uint8_t CMOS_RAM[];
-  int cmos_fd = open("CMOS.RAM",O_RDWR|O_CREAT,0660);
-  if(cmos_fd < 0){
-    perror("CMOS:open");
-  }else{
-    ssize_t rv=0;
-    rv = write(cmos_fd,CMOS_RAM,2048);
-    if(rv != 2048){
-      perror("CMOS:write");
-    }
-    close(cmos_fd);
-  }
-}
-
-void read_rtc_nvram(){
-  extern uint8_t RTC_RAM[];
-  int rtc_fd = open("RTC.RAM",O_RDONLY);
-  if(rtc_fd < 0){
-    perror("RTC:open");
-    // Initialize contents
-    RTC_RAM[0] = 0x2C; // EST TZ Low
-    RTC_RAM[1] = 0x01; // EST TZ Hi
-    RTC_RAM[2] = 'C'; // Cookie
-    RTC_RAM[3] = '\'';
-    RTC_RAM[4] = 'e';
-    RTC_RAM[5] = 's';
-    RTC_RAM[6] = 't';
-    RTC_RAM[7] = ' ';
-    RTC_RAM[8] = 'v';
-    RTC_RAM[9] = 'r';
-    RTC_RAM[10] = 'a';
-    RTC_RAM[11] = 'i';
-    RTC_RAM[12] = '.';
-    RTC_RAM[13] = 0;
-  }else{
-    ssize_t rv=0;
-    rv = read(rtc_fd,RTC_RAM,50);
-    if(rv != 50){
-      perror("RTC:read");
-    }
-    close(rtc_fd);
-  }
-}
-
-void write_rtc_nvram(){
-  extern uint8_t RTC_RAM[];
-  int rtc_fd = open("RTC.RAM",O_RDWR|O_CREAT,0660);
-  if(rtc_fd < 0){
-    perror("RTC:open");
-  }else{
-    ssize_t rv=0;
-    rv = write(rtc_fd,RTC_RAM,50);
-    if(rv != 50){
-      perror("RTC:write");
-    }
-    close(rtc_fd);
-  }
-}
+void read_sdu_rom();
+void read_vcmem_rom();
+void read_nvram();
+void write_nvram();
+void read_rtc_nvram();
+void write_rtc_nvram();
 
 const char *dtp_str[040] = {
   "DTP_TRAP",
@@ -2142,7 +2043,7 @@ void hw_init(){
 
 void lambda_dump(int opts){
   FILE *output;
-  char ofn[32];
+  char ofn[PATH_MAX];
   uint32_t addr=0;
   int x=0;
 
@@ -3012,11 +2913,11 @@ void parse_config_line(char *line){
 	   ether_addr[0],ether_addr[1],ether_addr[2],ether_addr[3],ether_addr[4],ether_addr[5]);
   }
   if(strcasecmp(tok,"ether_iface") == 0){
-    extern char ether_iface[30];
+    extern char ether_iface[IFNAMSIZ];
     // 3Com Ethernet interface
     tok = strtok(NULL," \t\r\n");
     if(tok != NULL){
-      strncpy(ether_iface,tok,30);
+      strncpy(ether_iface,tok,sizeof(ether_iface));
       printf("Using 3Com Ethernet interface %s\n",ether_iface);
     }
   }
@@ -3040,8 +2941,8 @@ void parse_config_line(char *line){
       dsk = val;
       tok = strtok(NULL," \t\r\n");
       if(tok != NULL){
-	extern char disk_fn[4][64];
-	strncpy(disk_fn[dsk],tok,64);
+	extern char disk_fn[4][PATH_MAX];
+	strncpy(disk_fn[dsk],tok,PATH_MAX);
 	printf("Using disk image %s for unit %d\n",tok,dsk);
       }
     }    
@@ -3089,7 +2990,7 @@ void parse_config_line(char *line){
     // Debug Target Hostname
     tok = strtok(NULL," \t\r\n");
     if(tok != NULL){
-      strncpy(debug_target_host,tok,128);
+      strncpy(debug_target_host,tok,sizeof(debug_target_host));
       printf("Using Debug Target Hostname %s\n",debug_target_host);
     }    
   }
@@ -3408,7 +3309,7 @@ int yaml_lam_mapping_loop(yaml_parser_t *parser){
 	}
 #ifdef CONFIG_PHYSKBD
 	if(strcmp(key,"kb_file") == 0){
-	  strncpy(kbd_filename,value,128);
+	  strncpy(kbd_filename,value,sizeof(kbd_filename));
 	  printf("Using physical keyboard at %s\n",kbd_filename);
 	  goto value_done;
 	}
@@ -3461,7 +3362,7 @@ int yaml_lam_mapping_loop(yaml_parser_t *parser){
 #endif
 #ifdef CONFIG_PHYSMS
         if(strcmp(key,"ms_file") == 0){
-          strncpy(ms_filename,value,128);
+          strncpy(ms_filename,value,sizeof(ms_filename));
           printf("Using physical mouse at %s\n",ms_filename);
           goto value_done;
         }
@@ -3588,9 +3489,9 @@ int yaml_keyboard_sequence_loop(yaml_parser_t *parser){
       break;
     case YAML_SCALAR_EVENT:
       if(key[0] == 0){
-	strncpy(key,(const char *)event.data.scalar.value,128);
+	strncpy(key,(const char *)event.data.scalar.value,sizeof(key));
       }else{
-	strncpy(value,(const char *)event.data.scalar.value,128);
+	strncpy(value,(const char *)event.data.scalar.value,sizeof(value));
 	// printf("keyboard: key %s = value %s\n",key,value);
         if(strcmp(key,"sdl") == 0){
 	  sval = atoi(value);
@@ -3698,9 +3599,9 @@ int yaml_keyboard_mapping_loop(yaml_parser_t *parser){
       break;
     case YAML_SCALAR_EVENT:
       if(key[0] == 0){
-	strncpy(key,(const char *)event.data.scalar.value,128);
+	strncpy(key,(const char *)event.data.scalar.value,sizeof(key));
       }else{
-	strncpy(value,(const char *)event.data.scalar.value,128);
+	strncpy(value,(const char *)event.data.scalar.value,sizeof(value));
 	// printf("keyboard: key %s = value %s\n",key,value);
 	// Handle it
 	if(strcmp(key,"quit") == 0){
@@ -3847,9 +3748,9 @@ int yaml_video_mapping_loop(yaml_parser_t *parser){
       break;
     case YAML_SCALAR_EVENT:
       if(key[0] == 0){
-	strncpy(key,(const char *)event.data.scalar.value,128);
+	strncpy(key,(const char *)event.data.scalar.value,sizeof(key));
       }else{
-	strncpy(value,(const char *)event.data.scalar.value,128);
+	strncpy(value,(const char *)event.data.scalar.value,sizeof(value));
 	if (strcmp(key,"height") == 0) {
 	  int sval = atoi(value);
 	  // 800 is standard, up to 1024 works (without microcode changes)
@@ -3949,9 +3850,9 @@ int yaml_audio_mapping_loop(yaml_parser_t *parser){
       break;
     case YAML_SCALAR_EVENT:
       if(key[0] == 0){
-	strncpy(key,(const char *)event.data.scalar.value,128);
+	strncpy(key,(const char *)event.data.scalar.value,sizeof(key));
       }else{
-	strncpy(value,(const char *)event.data.scalar.value,128);
+	strncpy(value,(const char *)event.data.scalar.value,sizeof(value));
 	if(strcmp(key,"volume") == 0){
 	  if ((sscanf(value,"%f", &xbeep_volume) != 1) || (xbeep_volume > 1.0f) || (xbeep_volume < 0.0f)) {
 	    printf("Bad audio volume \"%s\"\n", value);
@@ -4033,9 +3934,9 @@ int yaml_mouse_sequence_loop(yaml_parser_t *parser){
       break;
     case YAML_SCALAR_EVENT:
       if(key[0] == 0){
-	strncpy(key,(const char *)event.data.scalar.value,128);
+	strncpy(key,(const char *)event.data.scalar.value,sizeof(key));
       }else{
-	strncpy(value,(const char *)event.data.scalar.value,128);
+	strncpy(value,(const char *)event.data.scalar.value,sizeof(value));
         if(strcmp(key,"lambda") == 0){
 	  lambda = atoi(value);
 	  goto value_done;
@@ -4125,9 +4026,9 @@ int yaml_mouse_mapping_loop(yaml_parser_t *parser){
       break;
     case YAML_SCALAR_EVENT:
       if(key[0] == 0){
-	strncpy(key,(const char *)event.data.scalar.value,128);
+	strncpy(key,(const char *)event.data.scalar.value,sizeof(key));
       }else{
-	strncpy(value,(const char *)event.data.scalar.value,128);
+	strncpy(value,(const char *)event.data.scalar.value,sizeof(value));
 	if(strcmp(key,"mode") == 0){
 	  int val = atoi(value);
 	  switch(val){
@@ -4209,10 +4110,10 @@ int yaml_log_mapping_loop(yaml_parser_t *parser){
       break;
     case YAML_SCALAR_EVENT:
       if(key[0] == 0){
-	strncpy(key,(const char *)event.data.scalar.value,128);
+	strncpy(key,(const char *)event.data.scalar.value,sizeof(key));
       }else{
 	int x=0;
-	strncpy(value,(const char *)event.data.scalar.value,128);
+	strncpy(value,(const char *)event.data.scalar.value,sizeof(value));
 	// Do we know what this is?
 	if(strcasecmp(key,"ALL") == 0){
 	  int val = atoi(value);
@@ -4253,7 +4154,7 @@ int yaml_event_loop(yaml_parser_t *parser){
   int config_done = 0;
   int rv = 0;
   // Initialize
-  strncpy(key,"root",128);
+  strncpy(key,"root",sizeof(key));
   // Parse
   while(config_done == 0){
     if(!yaml_parser_parse(parser, &event)){
@@ -4301,7 +4202,7 @@ int yaml_event_loop(yaml_parser_t *parser){
       return(-1);
     seq_done:
       if(rv < 0){ return(rv); }
-      strncpy(key,"root",128);      
+      strncpy(key,"root",sizeof(key));      
       break;
     case YAML_SEQUENCE_END_EVENT:
       // printf("[End Sequence]\n");
@@ -4355,7 +4256,7 @@ int yaml_event_loop(yaml_parser_t *parser){
       return(-1);
     map_done:
       if(rv < 0){ return(rv); }      
-      strncpy(key,"root",128);      
+      strncpy(key,"root",sizeof(key));      
       break;
     case YAML_MAPPING_END_EVENT:
       // printf("[End Mapping]\n");
@@ -4372,7 +4273,7 @@ int yaml_event_loop(yaml_parser_t *parser){
 	printf("Unexpected value at root: %s\n", event.data.scalar.value);
 	return(-1);
       }
-      strncpy(key,(const char *)event.data.scalar.value,128);      
+      strncpy(key,(const char *)event.data.scalar.value,sizeof(key));      
       break;
     }
     yaml_event_delete(&event);
@@ -4511,7 +4412,7 @@ int main(int argc, char *argv[]){
     while(!feof(config)){
       char buf[128];
       char *ret = NULL;
-      ret = fgets(buf,128,config);
+      ret = fgets(buf,sizeof(buf),config);
       if(ret != NULL){
 	parse_config_line(buf);
       }
@@ -4523,11 +4424,12 @@ int main(int argc, char *argv[]){
   // Obtain site-wide YAML
 #ifdef SYSCONFDIR
   {
-    char sysconf[128];
-    sysconf[0] = 0;
-    strncat(sysconf,STR(SYSCONFDIR),127);
-    strncat(sysconf,"/lam.yml",127);
-    try_yaml_file(sysconf);
+    char sysconf[PATH_MAX];
+    if (strlen(STR(SYSCONFDIR)) < sizeof(sysconf)-9) {
+      sprintf(sysconf, "%s/lam.yml", STR(SYSCONFDIR));
+      try_yaml_file(sysconf);
+    } else
+      fprintf(stderr,"SYSCONFDIR too long: %s\n", STR(SYSCONFDIR));
   }
 #endif
   // Try user's home directory
@@ -4536,11 +4438,12 @@ int main(int argc, char *argv[]){
     char *homedir = getenv("HOME");
     if(homedir != NULL){
       // Use given home directory
-      char usrconf[128];
-      usrconf[0] = 0;
-      strncat(usrconf,homedir,127);
-      strncat(usrconf,"/lam.yml",127);
-      try_yaml_file(usrconf);            
+      char usrconf[PATH_MAX];
+      if (strlen(homedir) < sizeof(usrconf)-9) {
+	sprintf(usrconf,"%s/lam.yml", homedir);
+	try_yaml_file(usrconf);            
+      } else
+	fprintf(stderr,"env HOME too long: %s\n", homedir);
     }else{
       // Otherwise determine from UID
       uid_t user_id = getuid();
@@ -4557,11 +4460,12 @@ int main(int argc, char *argv[]){
       // printf("UID: %d\n",user_id);
       pw = getpwuid(user_id);
       if(pw != NULL){
-	char usrconf[128];
-	usrconf[0] = 0;
-	strncat(usrconf,pw->pw_dir,127);
-	strncat(usrconf,"/lam.yml",127);
-	try_yaml_file(usrconf);      
+	char usrconf[PATH_MAX];
+	if (strlen(pw->pw_dir) < sizeof(usrconf)-9) {
+	  sprintf(usrconf,"%s/lam.yml", pw->pw_dir);
+	  try_yaml_file(usrconf);      
+	} else 
+	  fprintf(stderr,"homedir too long: %s\n", pw->pw_dir);
       }	     
     }
   }

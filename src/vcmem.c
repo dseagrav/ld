@@ -25,6 +25,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <strings.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #include "ld.h"
 #include "nubus.h"
@@ -45,6 +48,22 @@ extern uint8_t mouse_io_ring[2][0x100];
 extern uint8_t mouse_io_ring_top[2],mouse_io_ring_bottom[2];
 
 // Functions
+void read_vcmem_rom(){
+  int rom_fd = open("roms/VCMEM.ROM",O_RDONLY);
+  if(rom_fd < 0){
+    perror("VCMEM:open");
+    exit(-1);
+  }else{
+    ssize_t rv=0;
+    rv = read(rom_fd,VCMEM_ROM,sizeof(VCMEM_ROM));
+    if(rv != sizeof(VCMEM_ROM)){
+      perror("VCMEM:read");
+      exit(-1);
+    }
+    close(rom_fd);
+  }
+}
+
 void vcmem_init(int vn,int slot){
   vcS[vn].Card = slot;
   vcS[vn].cycle_count = 0;

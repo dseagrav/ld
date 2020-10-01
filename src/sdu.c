@@ -28,6 +28,8 @@
 #include <strings.h>
 #include <time.h>
 #include <sys/time.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #ifdef HAVE_YAML_H
 #include <yaml.h>
@@ -315,6 +317,93 @@ char proc_conf_q_names[sizeof(processor_configuration_qs)/4][64] = {
   "excelan_multibus_map_base",
   "excelan_multibus_map_size"
 };
+
+void read_sdu_rom(){
+  int rom_fd = open("roms/SDU.ROM",O_RDONLY);
+  if(rom_fd < 0){
+    perror("SDU:open");
+    exit(-1);
+  }else{
+    ssize_t rv=0;
+    rv = read(rom_fd,SDU_ROM,sizeof(SDU_ROM));
+    if(rv != sizeof(SDU_ROM)){
+      perror("SDU:read");
+      exit(-1);
+    }
+    close(rom_fd);
+  }
+}
+
+void read_nvram(){
+  int cmos_fd = open("CMOS.RAM",O_RDONLY);
+  if(cmos_fd < 0){
+    perror("CMOS:open");
+  }else{
+    ssize_t rv=0;
+    rv = read(cmos_fd,CMOS_RAM,sizeof(CMOS_RAM));
+    if(rv != sizeof(CMOS_RAM)){
+      perror("CMOS:read");
+    }
+    close(cmos_fd);
+  }
+}
+
+void write_nvram(){
+  int cmos_fd = open("CMOS.RAM",O_RDWR|O_CREAT,0660);
+  if(cmos_fd < 0){
+    perror("CMOS:open");
+  }else{
+    ssize_t rv=0;
+    rv = write(cmos_fd,CMOS_RAM,sizeof(CMOS_RAM));
+    if(rv != sizeof(CMOS_RAM)){
+      perror("CMOS:write");
+    }
+    close(cmos_fd);
+  }
+}
+
+void read_rtc_nvram(){
+  int rtc_fd = open("RTC.RAM",O_RDONLY);
+  if(rtc_fd < 0){
+    perror("RTC:open");
+    // Initialize contents
+    RTC_RAM[0] = 0x2C; // EST TZ Low
+    RTC_RAM[1] = 0x01; // EST TZ Hi
+    RTC_RAM[2] = 'C'; // Cookie
+    RTC_RAM[3] = '\'';
+    RTC_RAM[4] = 'e';
+    RTC_RAM[5] = 's';
+    RTC_RAM[6] = 't';
+    RTC_RAM[7] = ' ';
+    RTC_RAM[8] = 'v';
+    RTC_RAM[9] = 'r';
+    RTC_RAM[10] = 'a';
+    RTC_RAM[11] = 'i';
+    RTC_RAM[12] = '.';
+    RTC_RAM[13] = 0;
+  }else{
+    ssize_t rv=0;
+    rv = read(rtc_fd,RTC_RAM,sizeof(RTC_RAM));
+    if(rv != 50){
+      perror("RTC:read");
+    }
+    close(rtc_fd);
+  }
+}
+
+void write_rtc_nvram(){
+  int rtc_fd = open("RTC.RAM",O_RDWR|O_CREAT,0660);
+  if(rtc_fd < 0){
+    perror("RTC:open");
+  }else{
+    ssize_t rv=0;
+    rv = write(rtc_fd,RTC_RAM,sizeof(RTC_RAM));
+    if(rv != 50){
+      perror("RTC:write");
+    }
+    close(rtc_fd);
+  }
+}
 
 void
 rtc_update_localtime(int force_p)
@@ -3182,9 +3271,9 @@ int yaml_sdu_mapping_loop(yaml_parser_t *parser){
       break;
     case YAML_SCALAR_EVENT:
       if(key[0] == 0){
-	strncpy(key,(const char *)event.data.scalar.value,128);
+	strncpy(key,(const char *)event.data.scalar.value,sizeof(key));
       }else{
-	strncpy(value,(const char *)event.data.scalar.value,128);
+	strncpy(value,(const char *)event.data.scalar.value,sizeof(value));
 	if(strcmp(key,"switch") == 0){
 	  int val = atoi(value);
 	  extern uint8_t sdu_rotary_switch;

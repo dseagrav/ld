@@ -26,6 +26,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <limits.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <stdbool.h>
@@ -166,7 +167,7 @@ extern int ld_die_rq;
 // extern int disk_geometry_spc;
 
 // Filenames
-char disk_fn[4][64] = { "disks/disk.img",{0},{0},{0} };
+char disk_fn[4][PATH_MAX] = { "disks/disk.img",{0},{0},{0} };
 
 int smd_init(){
   int x=0,y=0;
@@ -951,7 +952,7 @@ int yaml_disk_sequence_loop(yaml_parser_t *parser){
   yaml_event_t event;
   int sequence_done = 0;
   int unit = 0;
-  char fname[64];
+  char fname[PATH_MAX];
 
   key[0] = 0;
   value[0] = 0;
@@ -995,7 +996,7 @@ int yaml_disk_sequence_loop(yaml_parser_t *parser){
       // Map entry end. Do it.
       if(unit > 3){ unit = 3; }
       if(unit < 0){ unit = 0; }
-      strncpy(disk_fn[unit],fname,64);
+      strncpy(disk_fn[unit],fname,PATH_MAX);
       logmsgf(LT_SMD,0,"Using disk image %s for unit %d\n",disk_fn[unit],unit);
       break;
     case YAML_ALIAS_EVENT:
@@ -1012,7 +1013,7 @@ int yaml_disk_sequence_loop(yaml_parser_t *parser){
           goto value_done;
         }
         if(strcmp(key,"file") == 0){
-          strncpy(fname,value,64);
+          strncpy(fname,value,sizeof(fname));
           goto value_done;
         }
         logmsgf(LT_SMD,0,"disk: Unknown key %s (value %s)\n",key,value);
@@ -1088,9 +1089,9 @@ int yaml_disk_mapping_loop(yaml_parser_t *parser){
       break;
     case YAML_SCALAR_EVENT:
       if(key[0] == 0){
-        strncpy(key,(const char *)event.data.scalar.value,128);
+        strncpy(key,(const char *)event.data.scalar.value,sizeof(key));
       }else{
-        strncpy(value,(const char *)event.data.scalar.value,128);
+        strncpy(value,(const char *)event.data.scalar.value,sizeof(value));
         if(strcmp(key,"image") == 0){
 	  int dsk = 0;
 	  char *tok = strtok(value," \t\r\n");
@@ -1099,7 +1100,7 @@ int yaml_disk_mapping_loop(yaml_parser_t *parser){
 	    dsk = val;
 	    tok = strtok(NULL," \t\r\n");
 	    if(tok != NULL){
-	      strncpy(disk_fn[dsk],tok,64);
+	      strncpy(disk_fn[dsk],tok,PATH_MAX);
 	      logmsgf(LT_SMD,0,"Using disk image %s for unit %d\n",tok,dsk);
 	    }
 	  }else{
