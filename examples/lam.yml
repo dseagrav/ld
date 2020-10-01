@@ -94,6 +94,14 @@ network:
   interface: ldtap
   # The Lambda's MAC address
   address: 00:02:9C:55:89:C6
+  # Alternatively, to avoid collisions (and manual configuration)
+  # if you run more than one lam process on your network,
+  # you can specify LAA to generate a random
+  # Locally Administered Address, which is saved persistently
+  # in the file $interface.LAA.
+  # (This uses the interface name defined when parsing the address setting,
+  # so have the "interface:" before "address: LAA")
+  address: LAA
   # The Lambda's guest IP if you are using UTUN (otherwise undefined key)
   guest-ip: aaa.bbb.ccc.ddd
 
