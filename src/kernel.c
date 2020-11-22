@@ -1434,6 +1434,38 @@ void kbd_handle_char(int scancode, int down){
   put_rx_ring(active_console,outchar);
 }
 
+// Give an (ascii) string and length, stuff it into kbd input buffer and end with a Return.
+void 
+kbd_simulate_input(char *str, int len)
+{
+  int i;
+  SDL_Scancode c;
+  for (i = 0; i < len; i++) {
+    char k[20];
+    k[0] = str[i]; k[1] = '\0';
+    // this is a hack
+    if (str[i] == ' ')
+      strcpy(k, "space");
+    c = SDL_GetScancodeFromName(k);
+    if (c == SDL_SCANCODE_UNKNOWN) {
+      fprintf(stderr,"Bad key '%s' - can't find SDL scancode\n", k);
+    } else {
+      unsigned char out = map[c];
+      put_rx_ring(active_console, out);
+      // key down
+      put_rx_ring(active_console, 0x80 | 0x40);
+      put_rx_ring(active_console, out);
+      // key up
+      put_rx_ring(active_console, 0x80);
+    }
+  }
+  // end with an Enter
+  put_rx_ring(active_console, map[SDL_SCANCODE_RETURN]);
+  put_rx_ring(active_console, 0x80 | 0x40);
+  put_rx_ring(active_console, map[SDL_SCANCODE_RETURN]);
+  put_rx_ring(active_console, 0x80);
+}
+
 void sdl_system_shutdown_request(void){
   exit(0);
 }
@@ -4473,6 +4505,9 @@ void nubus_cycle(int sdu){
 
 // Main
 int main(int argc, char *argv[]){
+#ifdef SDL2
+  int autostart = 0;
+#endif
 #ifndef HAVE_YAML_H
   FILE *config;
 #endif
@@ -4573,7 +4608,14 @@ int main(int argc, char *argv[]){
   if(argc > 1){
     int x = 1;
     while(x < argc){
-      
+
+#ifdef SDL2
+      if (strcmp("-a",argv[x]) == 0) {
+	autostart = 1;
+	printf("Autostart enabled\n");
+      }
+#endif
+
 #ifdef BURR_BROWN
       if(strcmp("-d",argv[x]) == 0){
 	debug_target_mode = 10;
@@ -4695,7 +4737,12 @@ int main(int argc, char *argv[]){
       usleep(0);
     }
   }
-  
+#ifdef SDL2
+  else if (autostart) {
+    kbd_simulate_input("newboot -a", strlen("newboot -a"));
+  }
+#endif
+
   while(ld_die_rq == 0){
     // New loop
     icount -= 500000; // Don't clobber extra cycles if they happened
