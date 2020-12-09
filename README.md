@@ -1,3 +1,10 @@
+# NOTICE OF MAINTENANCE/DEVELOPMENT HIATUS
+
+Real-life conditions have made it extremely unlikely I will be in any position
+to work on (let alone maintain) this project for an extended period of time.
+
+You are encouraged to fork and/or develop a replacement this software.
+
 <!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
 **Table of Contents**
 
