@@ -23,6 +23,8 @@
   LAN, so do not make it the same as the host! It is written in the
   canonical colon-separated hex format.
   The default is 00:02:9C:55:89:C6.
+  You can also specify LAA (case-insensitive) to generate a Locally Administered Address,
+  which is saved persistently per interface in the file $IFNAME.LAA.
 
   disk N FNAME
 

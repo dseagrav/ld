@@ -991,18 +991,15 @@ int yaml_network_mapping_loop(yaml_parser_t *parser){
 	}
 #endif
 	if(strcmp(key,"address") == 0){
-	  int x = 0;
-	  char *tok;
-	  char *str = value;
-	  while(x < 6){
-	    long int val = 0;
-	    tok = strtok(str," :\t\r\n");
-	    if(str != NULL){ str = NULL; } // Clobber
-	    if(tok != NULL){
-	      val = strtol(tok,NULL,16);
-	    }
-	    ether_addr[x] = val;
-	    x++;
+	  if (strcasecmp(value,"laa") == 0) {
+	    make_locally_administered_address_for_interface(ether_iface, ether_addr);
+	  } else if (sscanf(value,"%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", 
+		     &ether_addr[0],&ether_addr[1],&ether_addr[2],&ether_addr[3],&ether_addr[4],&ether_addr[5]) 
+		     // try to parse an explicit address
+	      != 6) {
+	    // fail, so complain
+	    logmsgf(LT_3COM,0,"network address: could not parse value '%s'\n", value);
+	    return -1;
 	  }
 	  logmsgf(LT_3COM,0,"Using 3Com Ethernet address %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
 		 ether_addr[0],ether_addr[1],ether_addr[2],ether_addr[3],ether_addr[4],ether_addr[5]);

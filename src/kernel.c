@@ -37,6 +37,7 @@
 #include <errno.h>
 #include <pwd.h>
 #include <termios.h>
+#include <limits.h>
 
 // TCP socket
 #include <netinet/in.h>
@@ -2997,16 +2998,20 @@ void parse_config_line(char *line){
   if(tok[0] == '#' || tok[0] == ';'){ return; } // Comment
   if(strcasecmp(tok,"ether_addr") == 0){
     // 3Com Ethernet address
-    int x = 0;
     extern unsigned char ether_addr[6];
-    while(x < 6){
-      long int val = 0;
-      tok = strtok(NULL," :\t\r\n");
-      if(tok != NULL){
-	val = strtol(tok,NULL,16);
+    extern char ether_iface[30];
+    tok = strtok(NULL," \t\r\n");
+    if (tok != NULL) {
+      if (strcasecmp(tok,"laa") == 0) {
+	make_locally_administered_address_for_interface(ether_iface, ether_addr);
+      } else if (sscanf(tok,"%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", 
+			&ether_addr[0],&ether_addr[1],&ether_addr[2],&ether_addr[3],&ether_addr[4],&ether_addr[5]) 
+		 // try to parse an explicit address
+		 != 6) {
+	// fail, so complain
+	logmsgf(LT_3COM,0,"network address: could not parse value '%s'\n", tok);
+	return;
       }
-      ether_addr[x] = val;
-      x++;
     }
     printf("Using 3Com Ethernet address %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
 	   ether_addr[0],ether_addr[1],ether_addr[2],ether_addr[3],ether_addr[4],ether_addr[5]);
@@ -4471,6 +4476,86 @@ void nubus_cycle(int sdu){
   icount++; // Main cycle
 }
 
+// Support for Locally Administered Addresses for ethernet interfaces,
+// to avoid collisions (and manual config) when running more than one
+// lam process per network.
+// See https://www.why-did-it.fail/blog/old-04-mac-address-space/ and IEEE documents linked from there.
+static int
+get_laa_for_ifname(char *ifname, u_char *ea)
+{
+  FILE *f;
+  char fname[PATH_MAX];
+  sprintf(fname,"%s.LAA", ifname);
+  if ((f = fopen(fname,"r")) != NULL) {
+    if (fscanf(f, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &ea[0],&ea[1],&ea[2],&ea[3],&ea[4],&ea[5]) == 6) {
+      logmsgf(LT_3COM, 1, "network: read persistent LAA from %s\n", fname);
+      fclose(f);
+      return 1;
+    } else {
+      logmsgf(LT_3COM,0,"network: file %s corrupt, deleting and ignoring it\n", fname);
+      fclose(f);
+      if (unlink(fname) < 0) {
+	logmsgf(LT_3COM,0,"network: failed to unlink %s: %s\n", fname, strerror(errno));
+      }
+      return 0;
+    }
+  } else {
+    logmsgf(LT_3COM, 1, "network: no persistent LAA file found for %s\n", ifname);
+    return 0;
+  }
+}
+
+static int
+save_laa_for_ifname(char *ifname, u_char *ea)
+{
+  FILE *f;
+  char fname[PATH_MAX];
+  sprintf(fname,"%s.LAA", ifname);
+  if ((f = fopen(fname,"w")) != NULL) {
+    if (fprintf(f, "%02hhX:%02hhX:%02hhX:%02hhX:%02hhX:%02hhX\n", ea[0],ea[1],ea[2],ea[3],ea[4],ea[5]) > 0) {
+      logmsgf(LT_3COM, 1, "network: wrote persistent LAA to %s\n", fname);
+      fclose(f);
+      return 1;
+    } else {
+      logmsgf(LT_3COM, 0, "network: failed to write persistent LAA to %s: %s\n", fname, strerror(errno));
+      fclose(f);
+      return 0;
+    }
+  } else {
+    logmsgf(LT_3COM, 1, "network: cannot save persistent LAA to file %s: %s\n", fname, strerror(errno));
+    return 0;
+  }
+}
+
+void
+make_locally_administered_address_for_interface(char *iface, u_char *ea)
+{
+  int x;
+  u_char *oea = ea;
+
+  // first check if we have a persistent address already for ether_iface
+  if (get_laa_for_ifname(iface, ea) == 0) {
+    // We have no persistent address for that interface, so generate one.
+
+    // generate a Locally Administered Address (LAA, see https://www.why-did-it.fail/blog/old-04-mac-address-space/)
+    // These are z2::, z6::, zA::, zE::
+    // but some of them are actually allocated historically, so pick some free ones.
+    // The probabilities of getting a duplicate on a network are approx 1/2^44.
+    unsigned long long a = (u_long)random() | ((u_long)random()<<32);
+    *ea = a & 0xf0;
+    // generate a zE:: address except if we got z==2, then make a z6:: address
+    // because one address in 2E:: is taken, and one in 56::
+    if (*ea == 0x20) *ea |= 6;
+    else *ea |= 0xe;
+    for (x = 1; x < 6; x++) {
+      *++ea = (a >> x*8) & 0xff;
+    }
+
+    // then save it persistently, for ether_iface
+    save_laa_for_ifname(iface, oea);
+  }
+}
+
 // Main
 int main(int argc, char *argv[]){
 #ifndef HAVE_YAML_H
@@ -4496,6 +4581,13 @@ int main(int argc, char *argv[]){
   // Read default keymap
 #ifdef SDL1
   init_sdl_to_keysym_map();
+#endif
+
+  // Initialize randomness
+#if __APPLE__
+  srandomdev();
+#else
+  srandom(time(NULL));
 #endif
 
 #ifdef SDL2

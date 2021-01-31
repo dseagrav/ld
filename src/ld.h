@@ -55,6 +55,9 @@ void warp_mouse_callback(int cp);
 // Logging stuff
 int logmsgf(int type, int level, const char *format, ...);
 
+// persistent storage for LAA address, per interface
+void make_locally_administered_address_for_interface(char *iface, unsigned char *ea);
+
 // Type numbers
 // Make sure these stay in sync with the array logtype_name in kernel.c
 // I can't initialize that here because gcc whines about it (sigh)
